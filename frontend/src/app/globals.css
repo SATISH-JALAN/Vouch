@@ -1,0 +1,320 @@
+@import 'tailwindcss';
+
+/* ── tokens ─────────────────────────────────────────────────────────────── */
+
+@theme {
+  /* No default palette. If a colour is not listed here it does not exist. */
+  --color-*: initial;
+
+  /* document — the body surface */
+  --color-bone: #f3f1ea;
+  --color-bone-2: #e9e6dc;
+  --color-ink: #1a1d1b;
+  --color-ink-2: #5c615d;
+  --color-ink-3: #8e938e;
+  --color-rule: #dedacf;
+  --color-border: #c9c4b6;
+
+  /* shielded — hero, ticker, footer, redaction bars */
+  --color-shielded: #0b0d0c;
+  --color-shielded-2: #141715;
+  --color-on-dark: #edeae1;
+  --color-on-dark-2: #7e847e;
+  --color-rule-dark: #222622;
+
+  /* the seal — the only saturated colour at rest */
+  --color-seal: #c8452f;
+  --color-seal-bg: #f7e9e5;
+
+  /* verdicts — only inside a <Verdict> or a status chip */
+  --color-valid: #2e6a4e;
+  --color-valid-bg: #e7f0ea;
+  --color-invalid: #9e2b20;
+  --color-invalid-bg: #f6e6e3;
+  --color-expired: #8a6a1f;
+  --color-expired-bg: #f7f0df;
+
+  --radius-*: initial;
+  --radius-panel: 12px;
+  --radius-chip: 4px;
+
+  --shadow-*: initial;
+  --shadow-lift: 0 1px 2px rgba(26, 29, 27, 0.05);
+
+  --breakpoint-*: initial;
+  --breakpoint-sm: 390px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1440px;
+}
+
+@theme inline {
+  --font-serif: var(--font-instrument), 'Times New Roman', serif;
+  --font-sans: var(--font-switzer), 'General Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-geist-mono), 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --font-display: var(--font-fraunces), var(--font-instrument), 'Times New Roman', serif;
+  --font-pixel: var(--font-geist-pixel-square), var(--font-geist-mono), ui-monospace, monospace;
+}
+
+:root {
+  color-scheme: light;
+  --gutter: clamp(20px, 3.6vw, 76px);
+  --maxw: 1760px;
+  /* section anatomy (§4.3) — exact at ≥1440, compressed on small screens */
+  --s-top: clamp(64px, 6.667vw, 96px);
+  --s-eyebrow: clamp(28px, 3.06vw, 44px);
+  --s-content: clamp(64px, 7.78vw, 112px);
+  --s-end: clamp(96px, 10vw, 160px);
+}
+
+/* ── base ───────────────────────────────────────────────────────────────── */
+
+html {
+  background: var(--color-bone);
+  color: var(--color-ink);
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background: var(--color-bone);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.55;
+  overflow-x: clip;
+  font-variant-numeric: tabular-nums;
+}
+
+h1, h2, h3, h4 { text-wrap: balance; }
+p { text-wrap: pretty; }
+
+::selection { background: var(--color-ink); color: var(--color-bone); }
+
+:focus-visible {
+  outline: 2px solid var(--color-seal);
+  outline-offset: 3px;
+}
+
+/* lenis */
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-smooth [data-lenis-prevent] { overscroll-behavior: contain; }
+.lenis.lenis-stopped { overflow: hidden; }
+
+/* ── layout ─────────────────────────────────────────────────────────────── */
+
+.wrap {
+  width: 100%;
+  max-width: calc(var(--maxw) + 2 * var(--gutter));
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.grid-12 {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.section { padding-top: var(--s-top); padding-bottom: var(--s-end); }
+.section-head > * + * { margin-top: var(--s-eyebrow); }
+.section-body { margin-top: var(--s-content); }
+
+/* ── type (§4.2) ────────────────────────────────────────────────────────── */
+
+.t-display-xl, .t-display-l, .t-display-m, .t-numeral {
+  font-family: var(--font-serif);
+  font-weight: 400;
+}
+.t-display-xl { font-size: clamp(44px, 6.4vw, 118px); line-height: 0.98; letter-spacing: -0.02em; }
+/* the hero headline only: Fraunces, light, optical size wound all the way up */
+.t-hero {
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-variation-settings: 'opsz' 144, 'SOFT' 0, 'WONK' 1;
+  letter-spacing: -0.032em;
+  line-height: 0.95;
+}
+.t-display-l  { font-size: clamp(34px, 4.8vw, 84px);  line-height: 1.06; letter-spacing: -0.018em; }
+.t-display-m  { font-size: clamp(24px, 2.6vw, 44px);  line-height: 1.14; letter-spacing: -0.01em; }
+.t-numeral    { font-size: clamp(40px, 4.6vw, 88px);  line-height: 1;    letter-spacing: -0.02em; font-variant-numeric: tabular-nums lining-nums; }
+
+/* below 1024 the display tokens drop one step */
+@media (max-width: 1023.98px) {
+  .t-display-xl { font-size: clamp(40px, 4.8vw + 22px, 64px); line-height: 1.02; letter-spacing: -0.018em; }
+  .t-display-l  { font-size: clamp(28px, 2.6vw + 18px, 44px); line-height: 1.1;  letter-spacing: -0.01em; }
+  .t-display-m  { font-size: clamp(22px, 1vw + 18px, 28px);   line-height: 1.18; }
+}
+
+.t-title { font-size: clamp(17px, 1.2vw, 21px); font-weight: 600; line-height: 1.35; letter-spacing: -0.01em; }
+.t-prose { font-size: clamp(16px, 1.1vw, 19px); line-height: 1.66; max-width: 64ch; }
+.t-body  { font-size: 16px; line-height: 1.55; }
+.t-small { font-size: 14px; line-height: 1.5; }
+
+.t-eyebrow, .t-data, .t-data-sm { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+/* eyebrows set in Geist Pixel */
+.t-eyebrow { font-family: var(--font-pixel); font-size: 12px; font-weight: 500; line-height: 1.2; letter-spacing: 0.14em; text-transform: uppercase; }
+.t-pixel { font-family: var(--font-pixel); font-weight: 500; }
+
+/* the phrase a serif headline turns on */
+.accent { font-style: italic; letter-spacing: -0.01em; }
+.t-data    { font-size: 13px; line-height: 1.5; }
+.t-data-sm { font-size: 11px; line-height: 1.45; letter-spacing: 0.02em; }
+
+.wordmark {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  margin-right: -0.16em; /* tracking trails the last letter; keep optical centring honest */
+  line-height: 1;
+}
+
+/* ── motion pre-states — only ever under .js-ready (§14) ────────────────── */
+
+/* A bar that will reveal. Without JS or with reduced motion it is already open. */
+[data-reveal] { transform: scaleX(0); }
+.js-ready [data-reveal] { transform: scaleX(1); }
+@media (max-width: 1023.98px) {
+  .js-ready [data-reveal] { transform: scaleX(0); } /* instant on small screens */
+}
+
+.js-ready [data-line-reveal] { visibility: hidden; }
+.js-ready [data-enter] { opacity: 0; }
+.js-ready [data-clip-enter] { clip-path: inset(0 0 100% 0); }
+.js-ready [data-rule] { transform: scaleX(0); transform-origin: left center; }
+
+/* a framed painting is uncovered from the bottom edge up while the image itself eases down
+   out of a slight zoom; a feather-edged plate (no frame to clip against) simply rises and settles */
+.js-ready [data-unveil] { clip-path: inset(100% 0 0 0); }
+.js-ready [data-fade] { opacity: 0; }
+
+/* the lender's desk inside its dark panel: a long, soft dissolve into the panel — on small screens
+   downward into the text, on large screens leftward behind the words */
+.plate-fade {
+  -webkit-mask-image: linear-gradient(to bottom, #000 45%, rgb(0 0 0 / 0.5) 78%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 45%, rgb(0 0 0 / 0.5) 78%, transparent 100%);
+}
+@media (min-width: 1024px) {
+  .plate-fade {
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, rgb(0 0 0 / 0.18) 20%, rgb(0 0 0 / 0.72) 40%, #000 58%);
+    mask-image: linear-gradient(to right, transparent 0%, rgb(0 0 0 / 0.18) 20%, rgb(0 0 0 / 0.72) 40%, #000 58%);
+  }
+}
+
+/* a picture frame: the panel, and a hairline mat a few pixels outside it */
+.framed { outline: 1px solid var(--color-border); outline-offset: 7px; }
+@media (max-width: 1023.98px) {
+  .js-ready [data-clip-enter] { clip-path: none; }
+}
+
+/* ── redaction ──────────────────────────────────────────────────────────── */
+
+.redact { position: relative; display: inline-block; }
+.redact-bar {
+  position: absolute;
+  inset: 0.12em -0.05em 0.06em;
+  background: var(--redact, var(--color-ink));
+  transform-origin: right center;
+  pointer-events: none;
+  border-radius: 0;
+}
+.redact-bar.is-block { inset: 0; }
+
+/* ── controls ───────────────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 50px;
+  padding-inline: 26px;
+  border-radius: var(--radius-chip);
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 0.22s cubic-bezier(0.215, 0.61, 0.355, 1), border-color 0.22s cubic-bezier(0.215, 0.61, 0.355, 1), color 0.22s;
+  user-select: none;
+}
+.btn-sm { height: 38px; padding-inline: 16px; font-size: 14px; }
+.btn-primary { background: var(--color-ink); color: var(--color-bone); }
+.btn-primary:hover { background: #2a2e2b; }
+.btn-secondary { border: 1px solid var(--color-border); color: var(--color-ink); }
+.btn-secondary:hover { border-color: var(--color-ink); background: var(--color-bone-2); }
+.btn-on-dark { background: var(--color-on-dark); color: var(--color-shielded); }
+.btn-ghost-dark { border: 1px solid var(--color-rule-dark); color: var(--color-on-dark); }
+.btn-ghost-dark:hover { border-color: var(--color-on-dark-2); }
+.btn:disabled { opacity: 0.45; pointer-events: none; }
+
+.link-draw {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-size: 0% 1px;
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  transition: background-size 0.22s cubic-bezier(0.215, 0.61, 0.355, 1), color 0.22s;
+}
+.link-draw:hover, .link-draw[aria-current='page'] { background-size: 100% 1px; }
+
+.field {
+  width: 100%;
+  height: 46px;
+  padding-inline: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-chip);
+  background: var(--color-bone);
+  color: var(--color-ink);
+  font-size: 15px;
+  transition: border-color 0.22s;
+}
+.field:hover { border-color: var(--color-ink-3); }
+.field:focus { border-color: var(--color-ink); outline: none; }
+.field:focus-visible { outline: 2px solid var(--color-seal); outline-offset: 3px; }
+.field::placeholder { color: var(--color-ink-3); }
+textarea.field { height: auto; padding-block: 12px; resize: vertical; }
+
+/* ── custom cursor ──────────────────────────────────────────────────────── */
+
+.has-cursor, .has-cursor a, .has-cursor button, .has-cursor label, .has-cursor [role='button'] { cursor: none; }
+.has-cursor input, .has-cursor textarea, .has-cursor select { cursor: auto; }
+
+/* ── preloader — shown only on first visit, decided before paint ────────── */
+
+.preloader { display: none; }
+html.preload .preloader { display: flex; }
+html.preload body { overflow: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
+
+/* ── footer wordmark ───────────────────────────────────────────────────── */
+
+.footer-word { --mx: 50%; --my: 50%; --lit: 0; }
+.footer-word-base,
+.footer-word-lit {
+  grid-area: 1 / 1;
+  font-family: var(--font-serif);
+  /* sized so "Vouch." spans the grid edge to edge */
+  font-size: min(44.5vw, 840px);
+  line-height: 0.8;
+  letter-spacing: -0.035em;
+  white-space: nowrap;
+  /* the name runs off the bottom edge of the page */
+  margin-bottom: -0.05em;
+}
+.footer-word-base { color: var(--color-rule-dark); }
+.footer-word-lit {
+  color: transparent;
+  background: radial-gradient(circle 22vw at var(--mx) var(--my), var(--color-on-dark) 0%, rgb(237 234 225 / 0.35) 38%, transparent 70%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  opacity: var(--lit);
+  transition: opacity 0.5s cubic-bezier(0.215, 0.61, 0.355, 1);
+  pointer-events: none;
+}
+@media (hover: none) {
+  /* no pointer to follow: a fixed, dimmer glow on the first letters */
+  .footer-word { --mx: 18%; --my: 40%; --lit: 0.55; }
+}
