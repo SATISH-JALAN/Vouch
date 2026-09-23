@@ -1,20 +1,14 @@
 // The mark as plain SVG for next/og (Satori): no classes, no CSS variables.
 
+import { RING } from '@/components/brand/Mark'
+
 export function OgMark({ size, body, line, state = 'sealed' }: { size: number; body: string; line?: string; state?: 'sealed' | 'disclosed' }) {
   const open = state === 'disclosed'
-  const sw = size < 24 ? 1.5 : size > 160 ? 1 : 1.25
+  const sw = size < 24 ? 1.7 : size > 160 ? 1.2 : 1.35
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
-      <rect x="5" y="4" width="22" height="24" rx="1" stroke={body} strokeWidth={sw} />
-      <rect x="8.5" y="8" width="15" height="2.4" fill={body} />
-      <rect x="8.5" y="12" width="11" height="2.4" fill={body} />
-      <rect x="8.5" y="16" width="15" height="2.4" fill={body} />
-      {open ? (
-        <rect x="8.5" y="20" width="13" height="2.4" fill="none" stroke={line ?? body} strokeWidth="1" />
-      ) : (
-        <rect x="8.5" y="20" width="13" height="2.4" fill={body} />
-      )}
-      <rect x="8.5" y="24" width="9" height="2.4" fill={body} />
+      <path d={RING} stroke={body} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+      {open && <rect x="12" y="15.1" width="8" height="1.8" rx="0.3" fill="none" stroke={line ?? body} strokeWidth={0.7} />}
     </svg>
   )
 }

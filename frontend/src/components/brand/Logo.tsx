@@ -46,11 +46,10 @@ export function Logo({ variant = 'horizontal', size, surface = 'bone', state = '
   }
 
   const s = size ?? 24
-  const bar3Offset = s * (17.2 / 32 - 0.5)
   return (
     <span className={`inline-flex items-center ${className ?? ''}`} style={{ gap: (12 / 24) * s, color, padding: (2.4 / 32) * s }} aria-label={BRAND}>
       <Mark size={s} tone={tone} state={state} />
-      <Wordmark size={(14 / 24) * s} style={{ transform: `translateY(${bar3Offset.toFixed(2)}px)` }} />
+      <Wordmark size={(14 / 24) * s} />
     </span>
   )
 }
