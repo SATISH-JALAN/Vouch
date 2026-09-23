@@ -16,10 +16,10 @@ declare global {
 /**
  * Runs before first paint (inline in <head>). Decides, once:
  *  - js-ready: motion is allowed, so pre-animation states may apply
- *  - preload:  first visit to the landing page this session → show the preloader
+ *  - preload:  any load of the landing page → show the preloader (skipped under reduced motion)
  * If the app has not hydrated in 4s, both are removed so nothing stays hidden.
  */
-export const HEAD_SCRIPT = `(function(){var d=document.documentElement;try{if(!matchMedia('(prefers-reduced-motion: reduce)').matches){d.classList.add('js-ready');if(location.pathname==='/'&&!sessionStorage.getItem('vouch:intro')){d.classList.add('preload')}}}catch(e){}setTimeout(function(){if(!window.__vouchReady){d.classList.remove('js-ready','preload')}},4000)})();`
+export const HEAD_SCRIPT = `(function(){var d=document.documentElement;try{if(!matchMedia('(prefers-reduced-motion: reduce)').matches){d.classList.add('js-ready');if(location.pathname==='/'){d.classList.add('preload')}}}catch(e){}setTimeout(function(){if(!window.__vouchReady){d.classList.remove('js-ready','preload')}},4000)})();`
 
 export function MotionProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname()
