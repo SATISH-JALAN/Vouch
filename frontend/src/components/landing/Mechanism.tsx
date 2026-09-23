@@ -4,6 +4,7 @@ import Image from 'next/image'
 import { useRef } from 'react'
 import { gsap, useGSAP } from '@/lib/gsap'
 import { MQ } from '@/lib/motion'
+import { Mark } from '@/components/brand/Mark'
 import { Accent, Rule, SectionHead, TrustNote } from '@/components/ui/primitives'
 
 const STAGES = [
@@ -43,7 +44,7 @@ export function Mechanism() {
       mm.add(`${MQ.desktop} and ${MQ.motion}`, () => {
         const el = pin.current!
         const stages = gsap.utils.toArray<HTMLElement>('[data-stage]', el)
-        const nodes = gsap.utils.toArray<SVGRectElement>('[data-node]', el)
+        const nodes = gsap.utils.toArray<HTMLElement>('[data-node]', el)
         const rail = el.querySelector('[data-rail]')
         gsap.set(stages.slice(1), { opacity: 0.36 })
         gsap.set(nodes.slice(1), { opacity: 0 })
@@ -71,8 +72,8 @@ export function Mechanism() {
           <SectionHead eyebrow="FOUR STEPS" title={<span id="mechanism-h">A proof is a transaction that is <Accent>never sent.</Accent></span>} className="[&_h2]:lg:max-w-none" />
 
           <div className="mt-[var(--s-content)] lg:mt-10">
-            {/* the rail: desktop only. Nodes sit on each column's left edge. */}
-            <div className="relative mb-8 hidden h-[9px] lg:block" aria-hidden>
+            {/* the rail: desktop only. The mark sits on each column's left edge, pale until its step arrives. */}
+            <div className="relative mb-8 hidden h-[28px] lg:block" aria-hidden>
               <svg className="absolute left-0 top-1/2 h-[2px] w-full -translate-y-1/2 overflow-visible" viewBox="0 0 1000 2" preserveAspectRatio="none">
                 <line x1="0" y1="1" x2="1000" y2="1" stroke="var(--color-rule)" strokeWidth="1" />
               </svg>
@@ -86,10 +87,19 @@ export function Mechanism() {
               </svg>
               <div className="absolute inset-y-0 left-0" style={{ width: 'calc(75% + 18px)' }}>
                 {STAGES.map((_, i) => (
-                  <svg key={i} className="absolute top-0 -translate-x-1/2" style={{ left: `${(i / 3) * 100}%` }} width="9" height="9" viewBox="0 0 9 9">
-                    <rect x="0.5" y="0.5" width="8" height="8" fill="var(--color-bone)" stroke="var(--color-ink)" />
-                    <rect data-node="" x="2.5" y="2.5" width="4" height="4" fill="var(--color-ink)" />
-                  </svg>
+                  <span
+                    key={i}
+                    className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 bg-bone px-1.5"
+                    style={{ left: `${(i / 3) * 100}%` }}
+                  >
+                    <span className="relative block">
+                      <Mark size={28} tone="decorative" />
+                      {/* the inked mark on top, faded up as the step becomes current */}
+                      <span data-node="" className="absolute inset-0">
+                        <Mark size={28} tone="bone" />
+                      </span>
+                    </span>
+                  </span>
                 ))}
               </div>
             </div>
