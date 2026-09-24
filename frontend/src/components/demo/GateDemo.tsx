@@ -1,99 +1,172 @@
 'use client'
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { source } from '@/lib/data/adapter'
-import type { Attestation, CreditLine, GateTransaction, Preset, VerificationResult } from '@/lib/data/types'
+import type { Attestation, CreditLine, GateTransaction, ProofRequest, ServiceStatus, VerificationResult } from '@/lib/data/types'
 import { DEMO_AUDIENCE, DEMO_THRESHOLD_ZAT, INSTRUCTIONS_SYSVAR } from '@/lib/data/chain'
+import { fetchPreset, verify } from '@/lib/data/verifier'
+import { attest as liveAttest, demoProve, relayBorrower, relayOpenLine, relaySubmit, serviceStatus } from '@/lib/data/services'
+import * as sim from '@/lib/data/simulated'
 import { formatDate, formatInt, formatZec } from '@/lib/format'
+import { fromBase64Url, fromHex, toBase58, toBase64Url } from '@/lib/pof/bytes'
+import { isUnbound, reseal } from '@/lib/pof/codec'
 import { Chip, cx, TrustNote } from '@/components/ui/primitives'
 import { ClaimLine } from '@/components/ui/ClaimLine'
 import { Hash } from '@/components/ui/Hash'
 import { Mark } from '@/components/brand/Mark'
 
-type Status = 'idle' | 'done' | 'failed'
+type Status = 'idle' | 'running' | 'done' | 'failed'
 type StepId = 'proof' | 'attest' | 'tx' | 'line'
+type Mode = 'live' | 'sim'
 
 interface State {
+  proofB64?: string
   proof?: VerificationResult
   attestation?: Attestation
   tx?: GateTransaction
   line?: CreditLine
   status: Record<StepId, Status>
   error: Partial<Record<StepId, { title: string; body: string }>>
+  extra?: { title: string; body: string; ok: boolean }
 }
 
 const INITIAL: State = { status: { proof: 'idle', attest: 'idle', tx: 'idle', line: 'idle' }, error: {} }
 const ORDER: StepId[] = ['proof', 'attest', 'tx', 'line']
+const POOL_REQUEST: ProofRequest = { v: 1, claim: 'HoldsAtLeast', zatoshi: String(DEMO_THRESHOLD_ZAT), audience: DEMO_AUDIENCE.id, expiryDays: 7, bind: 'solana' }
+
+/** Flip one byte of Halo2 evidence and re-seal the checksum, as a forger would. */
+function tamper(b64: string): string {
+  const bytes = fromBase64Url(b64)!.slice()
+  const at = bytes.length - 32 - 64 - 2_000
+  bytes[at] = bytes[at]! ^ 0x01
+  return toBase64Url(reseal(bytes))
+}
 
 export function GateDemo() {
-  const [presets, setPresets] = useState<Preset[]>([])
+  const [svc, setSvc] = useState<ServiceStatus | null>(null)
+  const [borrower, setBorrower] = useState<string | null>(null)
   const [s, setS] = useState<State>(INITIAL)
   const [tamperProof, setTamperProof] = useState(false)
   const [tamperAtt, setTamperAtt] = useState(false)
   const [attestorDown, setAttestorDown] = useState(false)
+  const [busy, setBusy] = useState(false)
 
-  useEffect(() => setPresets(source.presets()), [])
+  useEffect(() => {
+    void serviceStatus().then(async (st) => {
+      setSvc(st)
+      if (st.solana && st.attestor.ok) setBorrower(await relayBorrower())
+    })
+  }, [])
 
+  const mode: Mode = svc?.solana && svc.attestor.ok && borrower ? 'live' : 'sim'
   const next = ORDER.find((id) => s.status[id] === 'idle')
   const halted = ORDER.some((id) => s.status[id] === 'failed')
-  const proofText = presets.find((p) => p.id === (tamperProof ? 'tampered' : 'valid'))?.encoded ?? ''
-
   const reset = () => setS(INITIAL)
+
+  async function loadProof(): Promise<string> {
+    if (mode === 'live' && svc?.demoProver && borrower) {
+      const out = await demoProve(POOL_REQUEST, borrower)
+      if (!out.ok) throw new Error(`The demo holder could not prove: ${out.message}`)
+      return out.proof.proof
+    }
+    return toBase64Url(await fetchPreset(mode === 'live' ? 'onchain.pof' : 'valid.pof'))
+  }
 
   async function step(id: StepId, st: State): Promise<State> {
     const done = (patch: Partial<State>): State => ({ ...st, ...patch, status: { ...st.status, [id]: 'done' } })
     const fail = (title: string, body: string): State => ({ ...st, status: { ...st.status, [id]: 'failed' }, error: { ...st.error, [id]: { title, body } } })
-    switch (id) {
-      case 'proof': {
-        const r = await source.verify(proofText, { audience: DEMO_AUDIENCE.id })
-        return done({ proof: r })
+    try {
+      switch (id) {
+        case 'proof': {
+          let b64 = await loadProof()
+          if (tamperProof) b64 = tamper(b64)
+          return done({ proofB64: b64, proof: await verify(b64, DEMO_AUDIENCE.id) })
+        }
+        case 'attest': {
+          if (attestorDown) return fail('Attestor unreachable', 'Simulated outage: connection refused. Nothing was signed and nothing reached Solana. The demo says so instead of spinning.')
+          const out = mode === 'live' ? await liveAttest(st.proofB64!) : await sim.attest(st.proof!, false)
+          if (out.ok) return done({ attestation: out.attestation })
+          return fail(out.reason === 'unreachable' ? 'Attestor unreachable' : 'Attestor refused to sign', out.message)
+        }
+        case 'tx': {
+          const a = st.attestation!
+          const out = mode === 'live' ? await relaySubmit({ action: 'submit', attestation: { message: a.message, signature: a.signature, attestor: a.attestor }, tamper: tamperAtt }) : await sim.submit(a, { tamperAttestation: tamperAtt })
+          return out.ok ? done({ tx: out.tx }) : fail(`Transaction failed · ${out.failedAt}`, out.message)
+        }
+        case 'line': {
+          if (mode === 'live') {
+            const out = await relayOpenLine({ action: 'open-line', receipt: st.tx!.receipt })
+            return out.ok ? done({ line: out.line }) : fail(`open_line failed · ${out.failedAt}`, out.message)
+          }
+          return done({ line: await sim.openLine(st.tx!) })
+        }
       }
-      case 'attest': {
-        const out = await source.attest(proofText, { simulateDown: attestorDown })
-        if (out.ok) return done({ attestation: out.attestation })
-        return out.reason === 'unreachable' ? fail('Attestor unreachable', out.message) : fail('Attestor refused to sign', out.message)
-      }
-      case 'tx': {
-        const out = await source.submit(st.attestation!, { tamperAttestation: tamperAtt })
-        return out.ok ? done({ tx: out.tx }) : fail(`Transaction failed · ${out.failedAt}`, out.message)
-      }
-      case 'line': {
-        const line = await source.openLine(st.tx!)
-        return done({ line })
-      }
+    } catch (err) {
+      return fail('Step failed', (err as Error).message)
     }
   }
 
   const runNext = async () => {
-    if (!next || halted) return
+    if (!next || halted || busy) return
+    setBusy(true)
+    setS({ ...s, status: { ...s.status, [next]: 'running' } })
     setS(await step(next, s))
+    setBusy(false)
   }
 
   const runAll = async () => {
+    if (busy) return
+    setBusy(true)
     let st: State = INITIAL
     setS(st)
     for (const id of ORDER) {
+      setS({ ...st, status: { ...st.status, [id]: 'running' } })
       st = await step(id, st)
       setS(st)
       if (st.status[id] === 'failed') break
     }
+    setBusy(false)
   }
 
-  const fixture = source.kind === 'fixture'
+  const replay = async () => {
+    if (!s.attestation) return
+    setBusy(true)
+    const out =
+      mode === 'live'
+        ? await relaySubmit({ action: 'submit', attestation: { message: s.attestation.message, signature: s.attestation.signature, attestor: s.attestation.attestor } })
+        : ({ ok: false, failedAt: 'Instruction 1 · pof-gate', message: 'Simulated: the ClaimReceipt account for this proof id already exists, so account creation fails. One proof, one receipt.' } as const)
+    setS({ ...s, extra: out.ok ? { ok: false, title: 'Replay was accepted', body: 'This should never happen: pof-gate created a second receipt.' } : { ok: true, title: `Replay refused · ${out.failedAt}`, body: out.message } })
+    setBusy(false)
+  }
+
+  const stranger = async () => {
+    if (!s.tx) return
+    setBusy(true)
+    const out =
+      mode === 'live'
+        ? await relayOpenLine({ action: 'open-line', receipt: s.tx.receipt, wallet: 'stranger' })
+        : ({ ok: false, failedAt: 'pof-credit · open_line', message: 'Simulated: the signer is not the account the proof is bound to, so pof-credit refuses. A copied proof or receipt is worthless to anyone else.' } as const)
+    setS({ ...s, extra: out.ok ? { ok: false, title: 'Another wallet opened a line', body: 'This should never happen.' } : { ok: true, title: `Refused · ${out.failedAt}`, body: out.message } })
+    setBusy(false)
+  }
+
+  const binding = s.proof?.envelope && !isUnbound(s.proof.envelope.binding) ? toBase58(fromHex(s.proof.envelope.binding)) : null
 
   return (
     <div className="grid gap-10 lg:grid-cols-[minmax(0,19rem)_minmax(0,1fr)] lg:gap-14">
       {/* controls */}
       <aside className="space-y-8 lg:sticky lg:top-24 lg:self-start">
+        <div className="flex items-center gap-3">
+          <Chip status={mode === 'live' ? 'valid' : 'neutral'}>{svc ? (mode === 'live' ? `LIVE · ${svc.solana?.cluster}` : 'SIMULATED CHAIN') : 'CHECKING'}</Chip>
+        </div>
         <div className="space-y-2">
-          <button type="button" className="btn btn-primary w-full" data-cursor="RUN" onClick={runNext} disabled={!presets.length || !next || halted}>
-            {halted ? 'Halted · reset to retry' : next ? `Run step ${ORDER.indexOf(next) + 1}` : 'Complete'}
+          <button type="button" className="btn btn-primary w-full" data-cursor="RUN" onClick={() => void runNext()} disabled={!svc || !next || halted || busy}>
+            {busy ? 'Running…' : halted ? 'Halted · reset to retry' : next ? `Run step ${ORDER.indexOf(next) + 1}` : 'Complete'}
           </button>
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" className="btn btn-sm btn-secondary" data-cursor="RUN" onClick={runAll} disabled={!presets.length}>
+            <button type="button" className="btn btn-sm btn-secondary" data-cursor="RUN" onClick={() => void runAll()} disabled={!svc || busy}>
               Run all
             </button>
-            <button type="button" className="btn btn-sm btn-secondary" onClick={reset}>
+            <button type="button" className="btn btn-sm btn-secondary" onClick={reset} disabled={busy}>
               Reset
             </button>
           </div>
@@ -101,36 +174,44 @@ export function GateDemo() {
 
         <fieldset className="space-y-3">
           <legend className="t-eyebrow mb-3 text-ink-3">BREAK SOMETHING</legend>
-          <Toggle checked={tamperProof} onChange={(v) => { setTamperProof(v); reset() }} label="Flip one byte of the proof" hint="The attestor verifies, gets ProofInvalid, refuses to sign." />
+          <Toggle checked={tamperProof} onChange={(v) => { setTamperProof(v); reset() }} label="Flip one byte of the proof" hint="The attestor runs the verifier, gets ProofInvalid, refuses to sign." />
           <Toggle checked={tamperAtt} onChange={(v) => { setTamperAtt(v); reset() }} label="Flip one byte of the attestation" hint="The Ed25519 instruction fails; pof-gate never runs." />
-          <Toggle checked={attestorDown} onChange={(v) => { setAttestorDown(v); reset() }} label="Take the attestor offline" hint="Simulated. The demo says so instead of spinning." />
+          <Toggle checked={attestorDown} onChange={(v) => { setAttestorDown(v); reset() }} label="Take the attestor offline" hint="Simulated outage. The demo says so instead of spinning." />
         </fieldset>
 
-        {fixture && (
-          <TrustNote label="FIXTURE">
-            Steps 2–4 use committed test artifacts. No attestor was contacted and nothing was sent to Solana. The failures you can trigger here are
-            the same failures the real stack produces, at the same layers.
+        {mode === 'sim' ? (
+          <TrustNote label="SIMULATED">
+            Step 1 is real: a real proof, checked by the real verifier in your browser. This deployment has no attestor or devnet programs
+            configured, so steps 2–4 are simulated. They fail in the same places, for the same reasons, as the live stack.
+            {svc?.attestor.message && ` (${svc.attestor.message})`}
+          </TrustNote>
+        ) : (
+          <TrustNote label="LIVE">
+            Real attestor, real Solana {svc?.solana?.cluster} transactions sent by a demo relayer that holds the borrower key the proof is bound to.
+            Every account links to the explorer.
           </TrustNote>
         )}
       </aside>
 
       {/* the stepper */}
       <ol className="relative">
-        <Step n={1} title="The proof" status={s.status.proof} caption="The borrower hands over proof.pof. The ZEC stays where it is.">
+        <Step n={1} title="The proof" status={s.status.proof} error={s.error.proof} caption={mode === 'live' ? 'The demo holder proves ≥ 500 ZEC for the pool, bound to the borrower’s Solana account. The ZEC stays where it is.' : 'The borrower hands over proof.pof. The ZEC stays where it is.'}>
           {s.proof?.envelope && (
             <>
               {s.proof.verdict.kind === 'Valid' ? (
                 <ClaimLine claim={s.proof.envelope.claim} anchorHeight={s.proof.envelope.anchor.height} />
               ) : (
                 <p className="t-body text-ink-2">
-                  Claims to hold at least {formatZec(s.proof.envelope.claim.zatoshi, 2)} ZEC. One byte of its evidence has been changed.
+                  Claims to hold at least {formatZec(s.proof.envelope.claim.zatoshi, 2)} ZEC. Your browser’s verifier says: {s.proof.verdict.kind}.
                 </p>
               )}
               <Artifact
                 rows={[
                   ['file', `proof.pof · ${formatInt(s.proof.sizeBytes)} bytes · POF1 v${s.proof.envelope.version}`],
+                  ['verdict', `${s.proof.verdict.kind} · checked by ${s.proof.verifier} (WASM) in ${s.proof.elapsedMs.toFixed(0)} ms`],
                   ['audience', <Hash key="a" value={s.proof.envelope.audience} head={10} tail={6} label="audience hash" />],
-                  ['anchor', `block ${formatInt(s.proof.envelope.anchor.height)}`],
+                  ['bound to', binding ? <Hash key="b" value={binding} head={8} tail={6} label="Solana account" /> : 'nobody (unbound)'],
+                  ['anchor', `block ${formatInt(s.proof.envelope.anchor.height)}${s.proof.anchor ? ` · ${s.proof.anchor.network}` : ''}`],
                   ['expires', formatDate(s.proof.envelope.expiresAt)],
                   ['checksum', <Hash key="c" value={s.proof.checksum ?? ''} head={10} tail={6} label="checksum" />],
                 ]}
@@ -149,9 +230,11 @@ export function GateDemo() {
             <Artifact
               rows={[
                 ['domain', s.attestation.domain],
-                ['subject', <Hash key="s" value={s.attestation.subject} head={10} tail={6} label="subject" />],
+                ['subject', <Hash key="s" value={s.attestation.subject} head={10} tail={6} label="proof id" />],
+                ['beneficiary', <Hash key="b" value={s.attestation.beneficiary} head={8} tail={6} label="beneficiary" />],
                 ['claim', `kind ${s.attestation.claimKind} · value ${formatInt(s.attestation.claimValue)} zat`],
                 ['anchor_ht', formatInt(s.attestation.anchorHeight)],
+                ['expires', formatDate(s.attestation.expiresAt)],
                 ['verdict', `${s.attestation.verdict} (Valid)`],
                 ['slot', formatInt(s.attestation.slot)],
                 ['message', <Hash key="m" value={s.attestation.message} head={16} tail={8} label="message" />],
@@ -174,23 +257,22 @@ export function GateDemo() {
                 ]),
                 ['sysvar', <Hash key="sv" value={INSTRUCTIONS_SYSVAR} head={10} tail={4} label="sysvar" />],
                 ['receipt', <Hash key="r" value={s.tx.receipt} head={8} tail={6} label="ClaimReceipt" />],
-                ['signature', <Hash key="t" value={s.tx.signature} head={12} tail={8} label="transaction signature" />],
+                ['signature', s.tx.explorer ? <a key="t" className="link-draw text-ink" href={s.tx.explorer} target="_blank" rel="noreferrer">{s.tx.signature.slice(0, 16)}… ↗</a> : <Hash key="t" value={s.tx.signature} head={12} tail={8} label="transaction signature" />],
                 ['slot', formatInt(s.tx.slot)],
               ]}
             />
           )}
         </Step>
 
-        <Step n={4} title="Credit line opened" status={s.status.line} caption="pof-credit reads the receipt, checks the threshold, marks it consumed, and opens the line." last>
+        <Step n={4} title="Credit line opened" status={s.status.line} error={s.error.line} caption="pof-credit reads the receipt, checks the threshold and the signer, marks the receipt consumed, and opens the line." last>
           {s.line && (
             <>
               <p className="t-body text-ink">
-                A credit line of <span className="font-mono">{s.line.limit}</span> is open against a proof of at least{' '}
-                {formatZec(s.line.requiredZatoshi, 2)} ZEC.
+                A credit line of <span className="font-mono">{s.line.limit}</span> is open against a proof of at least {formatZec(s.line.requiredZatoshi, 2)} ZEC.
               </p>
               <Artifact
                 rows={[
-                  ['line', <Hash key="l" value={s.line.account} head={8} tail={6} label="CreditLine account" />],
+                  ['line', s.line.explorer ? <a key="l" className="link-draw text-ink" href={s.line.explorer} target="_blank" rel="noreferrer">{s.line.account.slice(0, 12)}… ↗</a> : <Hash key="l" value={s.line.account} head={8} tail={6} label="CreditLine account" />],
                   ['pool', <Hash key="p" value={s.line.pool} head={8} tail={6} label="pool account" />],
                   ['limit', s.line.limit],
                   ['drawn', s.line.drawn],
@@ -198,9 +280,21 @@ export function GateDemo() {
                   ['required', `${formatInt(DEMO_THRESHOLD_ZAT)} zat`],
                 ]}
               />
-              <p className="t-data-sm mt-5 text-ink-3">
-                The ZEC never left Zcash. The pool never learned the balance, the notes, or any address.
-              </p>
+              <p className="t-data-sm mt-5 text-ink-3">The ZEC never left Zcash. The pool never learned the balance, the notes, or any address.</p>
+              <div className="mt-6 flex flex-wrap gap-2">
+                <button type="button" className="btn btn-sm btn-secondary" onClick={() => void replay()} disabled={busy}>
+                  Submit the same attestation again
+                </button>
+                <button type="button" className="btn btn-sm btn-secondary" onClick={() => void stranger()} disabled={busy}>
+                  Open a line from another wallet
+                </button>
+              </div>
+              {s.extra && (
+                <div role="status" className={cx('mt-4 rounded-panel border px-5 py-4', s.extra.ok ? 'border-border' : 'border-invalid')}>
+                  <p className={cx('t-data font-medium', s.extra.ok ? 'text-ink' : 'text-invalid')}>{s.extra.title}</p>
+                  <p className="t-data-sm mt-2 max-w-[80ch] text-ink-2">{s.extra.body}</p>
+                </div>
+              )}
             </>
           )}
         </Step>
@@ -214,13 +308,14 @@ function Step({ n, title, caption, status, error, last, children }: { n: number;
     <li className={cx('relative grid grid-cols-[40px_minmax(0,1fr)] gap-x-5 sm:grid-cols-[56px_minmax(0,1fr)] sm:gap-x-8', !last && 'pb-12')}>
       {!last && <span className="absolute bottom-0 left-5 top-12 w-px bg-border sm:left-7" aria-hidden />}
       <div className="flex justify-center pt-1">
-        <Mark size={40} state={status === 'done' ? 'disclosed' : status === 'failed' ? 'void' : 'sealed'} tone={status === 'failed' ? 'void' : status === 'idle' ? 'decorative' : 'bone'} />
+        <Mark size={40} state={status === 'done' ? 'disclosed' : status === 'failed' ? 'void' : 'sealed'} tone={status === 'failed' ? 'void' : status === 'idle' || status === 'running' ? 'decorative' : 'bone'} />
       </div>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-3">
           <p className="t-data-sm text-ink-3">{String(n).padStart(2, '0')}</p>
           <h2 className="t-display-m text-ink">{title}</h2>
           {status === 'done' && <Chip>done</Chip>}
+          {status === 'running' && <Chip>running</Chip>}
           {status === 'failed' && <Chip status="invalid">failed</Chip>}
         </div>
         <p className="t-small mt-2 max-w-[60ch] text-ink-2">{caption}</p>
