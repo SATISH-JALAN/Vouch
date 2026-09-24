@@ -1,0 +1,18 @@
+[toolchain]
+package_manager = "yarn"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+pof_gate = "A6WmRTgEAHC9GHstaj9oD8woVNRw9jgu31bpKVREXn8C"
+pof_credit = "J6ewFZAzcTkbVsYNBrcZvzdBtTTUK5UrpqCg9jiNyra1"
+
+[programs.devnet]
+pof_gate = "A6WmRTgEAHC9GHstaj9oD8woVNRw9jgu31bpKVREXn8C"
+pof_credit = "J6ewFZAzcTkbVsYNBrcZvzdBtTTUK5UrpqCg9jiNyra1"
+
+[provider]
+cluster = "devnet"
+wallet = "~/.config/solana/id.json"

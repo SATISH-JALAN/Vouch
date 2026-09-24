@@ -47,3 +47,6 @@ Thumbs.db
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+# devnet demo keypairs: never commit key material
+backend/solana/keys/
