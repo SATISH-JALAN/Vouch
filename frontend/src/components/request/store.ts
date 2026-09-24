@@ -13,6 +13,9 @@ interface RequestState {
   unit: Unit
   audience: string
   expiryDays: number
+  /** Days the holder has to respond; 0 = no deadline. */
+  respondDays: number
+  bindSolana: boolean
   txid: string
   fromHeight: string
   set: (patch: Partial<Omit<RequestState, 'set' | 'load' | 'setUnit'>>) => void
@@ -26,6 +29,8 @@ export const useRequest = create<RequestState>((set, get) => ({
   unit: 'ZEC',
   audience: DEMO_AUDIENCE.id,
   expiryDays: 7,
+  respondDays: 0,
+  bindSolana: false,
   txid: '',
   fromHeight: '',
   set: (patch) => set(patch),
@@ -43,8 +48,7 @@ export const useRequest = create<RequestState>((set, get) => ({
       amount: trimZec(formatZec(r.zatoshi).replace(/,/g, '')),
       audience: r.audience,
       expiryDays: r.expiryDays,
-      txid: r.txid ?? '',
-      fromHeight: r.fromHeight ? String(r.fromHeight) : '',
+      bindSolana: r.bind === 'solana',
     }),
 }))
 
@@ -56,4 +60,4 @@ export function toZatoshi(amount: string, unit: Unit): bigint | null {
   return BigInt(m[1]!) * 100_000_000n + BigInt((m[2] ?? '').padEnd(8, '0') || '0')
 }
 
-const trimZec = (s: string) => s.replace(/\.?0+$/, '') || '0'
+export const trimZec = (s: string) => (s.includes('.') ? s.replace(/\.?0+$/, '') : s) || '0'

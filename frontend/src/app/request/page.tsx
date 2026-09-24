@@ -12,7 +12,7 @@ export default function RequestPage() {
   return (
     <>
       <PageHead eyebrow="PROOF REQUEST" title="Ask for exactly one fact.">
-        <p>Choose the claim, name yourself as the audience, set an expiry. Send the link. The holder sees precisely what you will learn before they approve.</p>
+        <p>Choose the threshold, name yourself as the audience, set an expiry. Send the link. It opens the holder’s review screen, which shows precisely what you will learn before they approve.</p>
       </PageHead>
       <Rule />
       <div className="wrap pb-[var(--s-end)] pt-[clamp(40px,4.4vw,64px)]">
