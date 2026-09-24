@@ -1,40 +1,56 @@
-# web — Vouch frontend
+# Vouch — site
 
-Next.js 15 (App Router) · React 19 · Tailwind v4 · GSAP + Lenis · zustand. pnpm only. No Framer Motion, no WebGL.
+Next.js 15 (App Router) · React 19 · Tailwind v4 · GSAP + Lenis · zustand. pnpm only.
 
 ```bash
-pnpm install          # from the repo root
+pnpm install
 pnpm dev              # http://localhost:3000
-pnpm --filter web build
-pnpm --filter web test:fixtures   # fixture verifier sanity checks (13 cases + 20 tampered runs)
+pnpm build
+pnpm typecheck
+pnpm test:fixtures    # TypeScript codec ≡ Rust encoder on every committed proof, plus request links
+pnpm test:wasm        # WASM verifier ≡ native verdicts (needs ../scripts/build-wasm.sh once)
+pnpm e2e              # the full path through this site's API (needs the stack: ../scripts/dev-stack.sh)
 ```
 
-## Fixtures first
+## Pages
 
-Every page renders from `src/lib/data/fixtures.ts` with no wallet, WASM or network.
-`src/lib/data/adapter.ts` is the single switch:
+| Route | What it does |
+| --- | --- |
+| `/` | The story and the mechanism. |
+| `/verify` | Drop a `.pof` file and it verifies in the browser (WASM), against the anchor table and revocation list. Nothing is uploaded. |
+| `/request` | Build a proof request link: claim, threshold, audience, expiry, and optional Solana binding. |
+| `/prove` | Answer a request: the CLI command for your own wallet, or the demo holder. It keeps a local history and lets you revoke. |
+| `/demo` | Proof → attestation → `pof-gate` receipt → `pof-credit` line on Solana, with the breakers (replay, another wallet, a tampered proof). |
+| `/docs` | Format, integration, proving, trust model, attestor protocol, FAQ. |
 
-- `NEXT_PUBLIC_POF_WASM=1` → `live.ts`: loads `public/wasm/pof_wasm.js` (wasm-pack `--target web` output of `crates/pof-wasm`) lazily on first verify.
-- `POF_ATTEST_URL=https://…` → `/api/attest` proxies to `pof-attest`. Unset, the demo shows "attestor unreachable" rather than spinning.
+## What runs where
 
-What the fixture verifier really does: parses the `.pof` format, recomputes the blake2b-256 checksum, and checks expiry and audience.
-Revocation, the anchor and the Halo2 proof are compared against committed vectors. Every verdict surface says so via `<SourceNote>`.
+- **In the browser:** `pof-verify` compiled to WASM (`public/wasm`, built by `../scripts/build-wasm.sh`), loaded on the first verification. Warm-up takes about 0.3 s, and a verification about 100 ms. The TypeScript codec in `src/lib/pof` only parses the file, for display. Verdicts always come from the WASM.
+- **API routes** (`src/app/api`):
+  - `anchors`, `anchor/[height]`: the trusted anchor table (`src/data/anchors.json`).
+  - `revocations`: the public revocation list (GET; POST `{secret}` to revoke).
+  - `attest`, `demo-prove`: proxies to `pof-attest`.
+  - `relay`: builds and pays for the demo's Solana transactions.
+  - `status`: which of these are configured.
+  - `stats`: the verification counter.
+- **Labels, never guesses:** `/api/status` decides whether a surface says LIVE or SIMULATED. Without an attestor or Solana configured, `/demo` runs a simulation and labels it as one.
 
-Vectors anchor to real Zcash mainnet block 3,491,040 (hash in `src/lib/data/chain.ts`); the tree root and evidence bytes are fixture material.
-They regenerate per UTC day so "valid for 7 days" and "expired 3 days ago" stay true whenever the site is opened.
+Configuration is in [.env.example](.env.example). Every variable is optional.
+
+## Data that comes from the Rust side
+
+`../scripts/sync-fixtures.sh` copies `../fixtures/proofs/*.pof` → `public/proofs`, merges the anchor tables → `src/data/anchors.json`, and copies the demo revocation list. The IDLs in `src/data/idl` come from `backend/solana/target/idl`. Rebuild the WASM before `pnpm build` whenever `backend/crates` changes.
 
 ## Before submission
 
-- `src/lib/site.ts`: set `LINKS.repo` and `LINKS.forum`. Links that are `null` are not rendered.
+- `src/lib/site.ts`: set `LINKS.forum`. Links that are `null` are not rendered.
 - Set `NEXT_PUBLIC_SITE_URL` on Vercel so the OG image resolves to an absolute URL.
-- Open `/opengraph-image` in a browser.
 
-Fonts: Instrument Serif and Geist Mono via `next/font/google`; Switzer (Fontshare, ITF FFL) self-hosted in `src/fonts` so the fallback is size-matched (no CLS). `src/og-fonts` holds TTFs for the OG renderer.
+## Type and visuals
 
-## Visuals
+Fonts: Instrument Serif and Geist Mono via `next/font/google`. Switzer (Fontshare, ITF FFL) is self-hosted in `src/fonts`, so the fallback is size-matched (no CLS). `src/og-fonts` holds TTFs for the OG renderer.
 
-`public/visuals/` holds the web-ready paintings and hero loops (WebP, MP4/WebM without audio). `visuals-src/` holds the original PNG/MP4 exports and is not served.
-Prompts and art direction: `docs/Visual Direction — Image Prompts.md`.
+`public/visuals/` holds the web-ready paintings and hero loops (WebP, MP4/WebM without audio). `visuals-src/` holds the original exports and is not served.
 
 - The oval plates (`step-*.webp`, `not-found.webp`) have their paper recoloured to exactly `#F3F1EA` and are served `unoptimized`. Next's re-encode would shift that colour and show a box around them. If you replace one, re-run the same colour match.
-- The hero video is added client-side only when motion is allowed and data saver is off; it pauses off-screen. The painting underneath is the LCP.
+- The hero video is added client-side only when motion is allowed and data saver is off, and it pauses off-screen. The painting underneath is the LCP.
