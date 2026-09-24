@@ -18,7 +18,7 @@ const STAGES = [
     title: 'Locate the notes',
     img: '/visuals/step-2-locate.webp',
     alt: 'Oil painting: a clerk on a ladder threads a path through an archive of pigeonholes.',
-    body: 'Using the wallet’s own view of what it owns, the prover builds a path from each note to that snapshot. This ties the claim to real, on-chain money.',
+    body: 'Using the wallet’s own view of what it owns, the prover builds a path from each note to that snapshot, and shows each is unspent without revealing it. This ties the claim to real, on-chain money.',
   },
   {
     title: 'Sign without sending',
