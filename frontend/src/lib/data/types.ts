@@ -1,5 +1,5 @@
-// The one place for shared shapes. Mirrors the JSON projection of pof-core / pof-verify.
-// If the Rust enum changes, this file changes in the same commit.
+// The one place for shared shapes. Mirrors the JSON projection of pof-core / pof-verify
+// (backend/crates). If the Rust types change, this file changes in the same commit.
 
 export type ClaimKind = 'HoldsAtLeast' | 'HoldsExactly' | 'ReceivedPayment' | 'ReceivedAtLeastSince'
 
@@ -12,15 +12,19 @@ export type Claim =
 export interface Anchor {
   /** Finalised block height the proof is "as of". */
   height: number
-  /** Note commitment tree root at that height, hex. */
-  root: string
+  /** Ironwood note-commitment tree root at that height, hex. */
+  ncRoot: string
+  /** Spent-nullifier indexed Merkle tree root at that height, hex. */
+  nfRoot: string
 }
 
 export interface Evidence {
-  /** Public inputs, 32 bytes each, hex. */
+  /** Public inputs the verifier cannot derive, 32 bytes each, hex. */
   publicInputs: string[]
   /** Halo2 proof bytes. */
   proof: Uint8Array
+  /** RedPallas spend-authorisation signature over the statement, hex. */
+  signature: string
 }
 
 export interface Envelope {
@@ -28,6 +32,8 @@ export interface Envelope {
   claim: Claim
   /** blake2b-256 of the verifier identifier, hex. Never the plaintext name. */
   audience: string
+  /** 32 bytes the proof is bound to (e.g. a Solana pubkey), hex. All zero when unbound. */
+  binding: string
   anchor: Anchor
   /** Unix seconds. */
   issuedAt: number
@@ -38,7 +44,16 @@ export interface Envelope {
   evidence: Evidence
 }
 
-/** pof-verify's Verdict, plus one web-only state for inputs the current source cannot check. */
+/** An authenticated anchor: both roots at a finalised height, and which ledger they belong to. */
+export interface AnchorRecord {
+  network: 'mainnet' | 'testnet' | 'demo' | string
+  height: number
+  blockHash?: string | null
+  ncRoot: string
+  nfRoot: string
+}
+
+/** pof-verify's Verdict. */
 export type Verdict =
   | { kind: 'Valid'; claim: Claim; anchorHeight: number }
   | { kind: 'Expired'; at: number }
@@ -47,7 +62,6 @@ export type Verdict =
   | { kind: 'AnchorNotFound' }
   | { kind: 'ProofInvalid'; detail: string }
   | { kind: 'Malformed'; reason: string }
-  | { kind: 'Unchecked'; reason: string }
 
 export type CheckId = 'format' | 'expiry' | 'revocation' | 'audience' | 'anchor' | 'proof'
 
@@ -58,56 +72,67 @@ export interface Check {
   label: string
   status: CheckStatus
   detail: string
-  /** True when the check compared against a committed test vector instead of doing the real work. */
-  fixture?: boolean
 }
-
-export type SourceKind = 'fixture' | 'wasm'
 
 export interface VerificationResult {
   verdict: Verdict
   checks: Check[]
   envelope: Envelope | null
-  source: SourceKind
   sizeBytes: number
   checksum: string | null
+  /** The authenticated anchor the proof was checked against, when one matched. */
+  anchor: AnchorRecord | null
   elapsedMs: number
   /** Unix seconds the verification was evaluated at. */
   now: number
+  /** e.g. "pof-verify 0.1.0" */
+  verifier: string
 }
 
-export type PresetId = 'valid' | 'tampered' | 'expired'
+export type PresetId = 'valid' | 'tampered' | 'expired' | 'revoked' | 'wrong-audience' | 'forged-claim' | 'extended-expiry' | 'anchor-mismatch' | 'readdressed' | 'threshold-4000' | 'onchain'
 
 export interface Preset {
   id: PresetId
   label: string
-  /** base64url-encoded .pof */
-  encoded: string
+  note: string
+  /** Identifier to verify as. */
+  audience: string
+  /** Path under /proofs. */
+  file: string
 }
 
 export interface ProofRequest {
   v: 1
+  /** Random request id, hex. */
+  id?: string
   claim: ClaimKind
   /** zatoshi as a decimal string, so large values survive JSON. */
   zatoshi: string
   audience: string
   expiryDays: number
-  txid?: string
-  fromHeight?: number
+  /** Unix seconds the verifier wants an answer by. */
+  respondBy?: number
+  /** "solana" when the proof must be bound to the holder's Solana account. */
+  bind?: 'solana'
 }
 
 /** The domain-separated message pof-attest signs. */
 export interface Attestation {
   domain: 'POF-ATTEST-v1'
+  /** Stable proof id: blake2b(statement). One proof, one receipt. */
   subject: string
+  /** Solana account the proof is bound to, base58. */
+  beneficiary: string
   claimKind: number
   claimValue: number
   anchorHeight: number
+  expiresAt: number
   verdict: number
   slot: number
   /** Serialised message bytes, hex. */
   message: string
   signature: string
+  /** Attestor Ed25519 pubkey, base58. */
   attestor: string
 }
 
@@ -116,6 +141,7 @@ export interface GateTransaction {
   slot: number
   instructions: { index: number; program: string; programId: string; summary: string }[]
   receipt: string
+  explorer?: string
 }
 
 export interface CreditLine {
@@ -125,6 +151,7 @@ export interface CreditLine {
   drawn: string
   openedAgainst: string
   requiredZatoshi: number
+  explorer?: string
 }
 
 export type AttestOutcome =
@@ -135,12 +162,9 @@ export type SubmitOutcome =
   | { ok: true; tx: GateTransaction }
   | { ok: false; message: string; failedAt: string }
 
-export interface DataSource {
-  kind: SourceKind
-  presets(): Preset[]
-  defaultAudience: string
-  verify(input: string | Uint8Array, opts: { audience: string }): Promise<VerificationResult>
-  attest(encoded: string, opts: { simulateDown?: boolean }): Promise<AttestOutcome>
-  submit(att: Attestation, opts: { tamperAttestation?: boolean }): Promise<SubmitOutcome>
-  openLine(tx: GateTransaction): Promise<CreditLine>
+/** What the deployment has configured: drives LIVE vs SIMULATED on /demo and /prove. */
+export interface ServiceStatus {
+  attestor: { ok: boolean; pubkey?: string; message?: string }
+  demoProver: boolean
+  solana: { cluster: string; gate: string; credit: string; pool: string } | null
 }

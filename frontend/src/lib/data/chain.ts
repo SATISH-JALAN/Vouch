@@ -3,14 +3,17 @@
 
 /**
  * A real, finalised Zcash mainnet block (checked on a public explorer, 21 Sep 2026).
- * The fixtures anchor to this height. `blockHash` is real; `treeRoot` is fixture material,
- * because a note-commitment root for Ironwood is only produced by the prover (see /docs/format).
+ * The demo ledger's anchor uses this height; its roots are the demo tree's, and the anchor
+ * table labels it `network: "demo"`. Mainnet anchors come from pof-anchor.
  */
 export const ANCHOR = {
   height: 3_491_040,
   blockHash: '0000000000964cffafcc1c04c052903249273098acd68044a52361d58d4fdaae',
   time: '2026-09-21T11:01:48Z',
 } as const
+
+/** First block of the Ironwood pool (NU6.3). Source: The Block, 28 Jul 2026. */
+export const IRONWOOD_ACTIVATION_HEIGHT = 3_428_143
 
 /** Ironwood network upgrade activation. Source: CoinDesk, 28 Jul 2026. */
 export const IRONWOOD_ACTIVATION = '28 Jul 2026'
