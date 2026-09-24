@@ -1,0 +1,50 @@
+{
+  "audience": "pof-credit:usdc-pool-1",
+  "evaluatedAt": 1790208000,
+  "expected": {
+    "anchor-mismatch": {
+      "audience": "pof-credit:usdc-pool-1",
+      "verdict": "AnchorNotFound"
+    },
+    "expired": {
+      "audience": "pof-credit:usdc-pool-1",
+      "verdict": "Expired"
+    },
+    "extended-expiry": {
+      "audience": "pof-credit:usdc-pool-1",
+      "verdict": "ProofInvalid"
+    },
+    "forged-claim": {
+      "audience": "pof-credit:usdc-pool-1",
+      "verdict": "ProofInvalid"
+    },
+    "onchain": {
+      "audience": "pof-credit:usdc-pool-1",
+      "verdict": "Valid"
+    },
+    "readdressed": {
+      "audience": "otc-desk:someone-else",
+      "verdict": "ProofInvalid"
+    },
+    "revoked": {
+      "audience": "pof-credit:usdc-pool-1",
+      "verdict": "Revoked"
+    },
+    "tampered": {
+      "audience": "pof-credit:usdc-pool-1",
+      "verdict": "ProofInvalid"
+    },
+    "threshold-4000": {
+      "audience": "pof-credit:usdc-pool-1",
+      "verdict": "Valid"
+    },
+    "valid": {
+      "audience": "pof-credit:usdc-pool-1",
+      "verdict": "Valid"
+    },
+    "wrong-audience": {
+      "audience": "pof-credit:usdc-pool-1",
+      "verdict": "WrongAudience"
+    }
+  }
+}
