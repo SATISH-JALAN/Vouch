@@ -2,11 +2,13 @@
 //
 //   magic     "POF1"                 4 bytes
 //   version   u16 little-endian      2 bytes
-//   body      postcard(Envelope)     variable
+//   body      postcard(Body)         variable
 //   checksum  blake2b-256(body)      32 bytes
 //
-// Travels as base64url wherever it is text. This is a TypeScript mirror used for
-// fixtures and for parsing; pof-verify (Rust, compiled to WASM) is the reference.
+// Travels as base64url wherever it is text. This is a TypeScript mirror used for display and
+// parsing; pof-verify (Rust, compiled to WASM) is the reference and the only thing that
+// decides a verdict. `scripts/verify-fixtures.ts` checks this mirror byte-for-byte against the
+// proofs the Rust prover wrote to fixtures/.
 
 import type { Claim, Envelope } from '../data/types.ts'
 import { blake2b } from './blake2b.ts'
@@ -14,6 +16,8 @@ import { concat, equal, fromHex, hex } from './bytes.ts'
 
 export const MAGIC = new Uint8Array([0x50, 0x4f, 0x46, 0x31]) // "POF1"
 export const FORMAT_VERSION = 1
+/** 1 unit = 0.125 ZEC. Threshold claims are proven in whole units. */
+export const ZAT_PER_UNIT = 12_500_000n
 
 const CLAIM_TAG: Record<Claim['kind'], number> = {
   HoldsAtLeast: 0,
@@ -47,8 +51,7 @@ class Writer {
   }
 }
 
-export function encodeBody(e: Envelope): Uint8Array {
-  const w = new Writer()
+function writeHead(w: Writer, e: Envelope) {
   const c = e.claim
   w.varint(CLAIM_TAG[c.kind])
   switch (c.kind) {
@@ -66,20 +69,28 @@ export function encodeBody(e: Envelope): Uint8Array {
       break
   }
   w.fixed(fromHex(e.audience))
+  w.fixed(fromHex(e.binding))
   w.varint(e.anchor.height)
-  w.fixed(fromHex(e.anchor.root))
+  w.fixed(fromHex(e.anchor.ncRoot))
+  w.fixed(fromHex(e.anchor.nfRoot))
   w.varint(e.issuedAt)
   w.varint(e.expiresAt)
   w.fixed(fromHex(e.revocation))
+}
+
+export function encodeBody(e: Envelope): Uint8Array {
+  const w = new Writer()
+  writeHead(w, e)
   w.varint(e.evidence.publicInputs.length)
   for (const pi of e.evidence.publicInputs) w.fixed(fromHex(pi))
   w.bytes(e.evidence.proof)
+  w.fixed(fromHex(e.evidence.signature))
   return w.done()
 }
 
 export function encode(e: Envelope): Uint8Array {
   const body = encodeBody(e)
-  const version = new Uint8Array([e.version & 0xff, e.version >> 8])
+  const version = new Uint8Array([FORMAT_VERSION & 0xff, FORMAT_VERSION >> 8])
   return concat(MAGIC, version, body, blake2b(body))
 }
 
@@ -103,7 +114,10 @@ class Reader {
     for (let i = 0; i < 8; i++) {
       const byte = this.u8()
       n += (byte & 0x7f) * mul
-      if (!(byte & 0x80)) return n
+      if (!(byte & 0x80)) {
+        if (!Number.isSafeInteger(n)) throw new Error('value exceeds 2^53')
+        return n
+      }
       mul *= 128
     }
     throw new Error('varint too long')
@@ -118,8 +132,10 @@ class Reader {
     this.o += n
     return out
   }
-  bytes(): Uint8Array {
-    return this.fixed(this.varint())
+  bytes(max: number): Uint8Array {
+    const n = this.varint()
+    if (n > max) throw new Error(`field of ${n} bytes exceeds the ${max}-byte limit`)
+    return this.fixed(n)
   }
   get rest() {
     return this.b.length - this.o
@@ -127,7 +143,7 @@ class Reader {
 }
 
 export type DecodeResult =
-  | { ok: true; envelope: Envelope; checksum: string; bodyOffset: number }
+  | { ok: true; envelope: Envelope; checksum: string }
   | { ok: false; reason: string }
 
 export function decode(file: Uint8Array): DecodeResult {
@@ -154,8 +170,10 @@ export function decode(file: Uint8Array): DecodeResult {
       default: return { ok: false, reason: `Unknown claim tag ${tag}.` }
     }
     const audience = hex(r.fixed(32))
+    const binding = hex(r.fixed(32))
     const height = r.varint()
-    const root = hex(r.fixed(32))
+    const ncRoot = hex(r.fixed(32))
+    const nfRoot = hex(r.fixed(32))
     const issuedAt = r.varint()
     const expiresAt = r.varint()
     const revocation = hex(r.fixed(16))
@@ -163,15 +181,28 @@ export function decode(file: Uint8Array): DecodeResult {
     if (n > 16) return { ok: false, reason: 'Too many public inputs.' }
     const publicInputs: string[] = []
     for (let i = 0; i < n; i++) publicInputs.push(hex(r.fixed(32)))
-    const proof = r.bytes()
+    const proof = r.bytes(16 * 1024)
+    const signature = hex(r.fixed(64))
     if (r.rest !== 0) return { ok: false, reason: 'Trailing bytes after the envelope.' }
     return {
       ok: true,
-      envelope: { version, claim, audience, anchor: { height, root }, issuedAt, expiresAt, revocation, evidence: { publicInputs, proof } },
+      envelope: {
+        version,
+        claim,
+        audience,
+        binding,
+        anchor: { height, ncRoot, nfRoot },
+        issuedAt,
+        expiresAt,
+        revocation,
+        evidence: { publicInputs, proof, signature },
+      },
       checksum: hex(checksum),
-      bodyOffset: 6,
     }
   } catch (err) {
     return { ok: false, reason: `Envelope does not parse: ${(err as Error).message}.` }
   }
 }
+
+/** True when `binding` is the all-zero "unbound" value. */
+export const isUnbound = (binding: string) => /^0{64}$/.test(binding)
