@@ -467,6 +467,70 @@ where
     ))
 }
 
+/// VOUCH MODIFICATION: the point data of a verifying key — fixed-column commitments and
+/// permutation commitments — so a verifier can ship a precomputed key instead of spending
+/// seconds on multi-scalar multiplications (tens of seconds in WebAssembly).
+pub fn vk_commitments<C: CurveAffine>(vk: &VerifyingKey<C>) -> (Vec<C>, Vec<C>) {
+    (vk.fixed_commitments.clone(), vk.permutation.commitments().to_vec())
+}
+
+/// VOUCH MODIFICATION: rebuild a [`VerifyingKey`] from precomputed commitments.
+///
+/// Runs the same synthesis as [`keygen_vk`] to recover the constraint system (including
+/// selector compression), but takes the commitments from the caller instead of computing
+/// them. The caller must supply commitments produced by [`vk_commitments`] for the same
+/// circuit and parameters; the transcript representation is re-derived from them, so a
+/// wrong commitment yields a key that rejects honest proofs rather than one that accepts
+/// forged ones for a different statement.
+pub fn keygen_vk_from_commitments<C, ConcreteCircuit>(
+    params: &Params<C>,
+    circuit: &ConcreteCircuit,
+    fixed_commitments: Vec<C>,
+    permutation_commitments: Vec<C>,
+) -> Result<VerifyingKey<C>, Error>
+where
+    C: CurveAffine,
+    C::Scalar: FromUniformBytes<64>,
+    ConcreteCircuit: Circuit<C::Scalar>,
+{
+    let (domain, cs, config) = create_domain::<C, ConcreteCircuit>(params);
+
+    if (params.n as usize) < cs.minimum_rows() {
+        return Err(Error::not_enough_rows_available(params.k));
+    }
+
+    let mut assembly: Assembly<C::Scalar> = Assembly {
+        k: params.k,
+        fixed: vec![domain.empty_lagrange_assigned(); cs.num_fixed_columns],
+        permutation: permutation::keygen::Assembly::new(params.n as usize, &cs.permutation),
+        selectors: vec![vec![false; params.n as usize]; cs.num_selectors],
+        usable_rows: 0..params.n as usize - (cs.blinding_factors() + 1),
+        _marker: std::marker::PhantomData,
+    };
+
+    ConcreteCircuit::FloorPlanner::synthesize(
+        &mut assembly,
+        circuit,
+        config,
+        cs.constants.clone(),
+    )?;
+
+    let (cs, selector_polys, _) = cs.compress_selectors(assembly.selectors);
+    drop(selector_polys);
+    if fixed_commitments.len() != cs.num_fixed_columns
+        || permutation_commitments.len() != cs.permutation.get_columns().len()
+    {
+        return Err(Error::InvalidParameters);
+    }
+
+    Ok(VerifyingKey::from_parts(
+        domain,
+        fixed_commitments,
+        permutation::VerifyingKey::from_commitments(permutation_commitments),
+        cs,
+    ))
+}
+
 /// Generate a [`ProvingKey`] from a [`VerifyingKey`] and a [`Circuit`] instance.
 pub fn keygen_pk<C, ConcreteCircuit>(
     params: &Params<C>,
