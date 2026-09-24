@@ -43,7 +43,8 @@ export const configPda = () => pda([Buffer.from('config')], GATE_ID)
 export const receiptPda = (subject: Uint8Array) => pda([Buffer.from('receipt'), subject], GATE_ID)
 export const poolPda = (mint: PublicKey) => pda([Buffer.from('pool'), mint.toBuffer()], CREDIT_ID)
 export const vaultPda = (pool: PublicKey) => pda([Buffer.from('vault'), pool.toBuffer()], CREDIT_ID)
-export const linePda = (pool: PublicKey, borrower: PublicKey) => pda([Buffer.from('line'), pool.toBuffer(), borrower.toBuffer()], CREDIT_ID)
+/** One line per proof: keyed by the receipt's subject (the proof id) and the borrower. */
+export const linePda = (subject: Uint8Array, borrower: PublicKey) => pda([Buffer.from('line'), subject, borrower.toBuffer()], CREDIT_ID)
 export const consumerPda = () => pda([Buffer.from('consumer')], CREDIT_ID)
 
 // ── pof-gate ──────────────────────────────────────────────────────────────
@@ -106,13 +107,13 @@ export function initPoolIx(authority: PublicKey, mint: PublicKey, audience: Uint
   })
 }
 
-export function openLineIx(pool: PublicKey, borrower: PublicKey, receipt: PublicKey) {
+export function openLineIx(pool: PublicKey, borrower: PublicKey, receipt: PublicKey, subject: Uint8Array) {
   return new TransactionInstruction({
     programId: CREDIT_ID,
     keys: [
       { pubkey: pool, isSigner: false, isWritable: false },
       { pubkey: receipt, isSigner: false, isWritable: true },
-      { pubkey: linePda(pool, borrower), isSigner: false, isWritable: true },
+      { pubkey: linePda(subject, borrower), isSigner: false, isWritable: true },
       { pubkey: borrower, isSigner: true, isWritable: true },
       { pubkey: consumerPda(), isSigner: false, isWritable: false },
       { pubkey: GATE_ID, isSigner: false, isWritable: false },
@@ -123,6 +124,9 @@ export function openLineIx(pool: PublicKey, borrower: PublicKey, receipt: Public
 }
 
 // ── accounts ──────────────────────────────────────────────────────────────
+
+/** ClaimReceipt.subject: the first field after the discriminator. */
+export const receiptSubject = (data: Buffer) => data.subarray(8, 40)
 
 export interface PoolAccount {
   authority: PublicKey

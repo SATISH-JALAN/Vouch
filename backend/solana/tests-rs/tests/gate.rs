@@ -181,7 +181,7 @@ fn open_line_ix(w: &World, borrower: &Pubkey, subject: &[u8; 32]) -> Instruction
         accounts: pof_credit::accounts::OpenLine {
             pool: p,
             receipt: receipt(subject),
-            line: pda(&[b"line", p.as_ref(), borrower.as_ref()], &pof_credit::ID),
+            line: pda(&[b"line", subject.as_ref(), borrower.as_ref()], &pof_credit::ID),
             borrower: *borrower,
             consumer: pda(&[b"consumer"], &pof_credit::ID),
             gate_program: pof_gate::ID,
@@ -224,7 +224,7 @@ fn happy_path_opens_and_draws() {
         program_id: pof_credit::ID,
         accounts: pof_credit::accounts::Draw {
             pool: p,
-            line: pda(&[b"line", p.as_ref(), b.pubkey().as_ref()], &pof_credit::ID),
+            line: pda(&[b"line", m.subject.as_ref(), b.pubkey().as_ref()], &pof_credit::ID),
             borrower: b.pubkey(),
             vault: pda(&[b"vault", p.as_ref()], &pof_credit::ID),
             borrower_token: ata,
@@ -314,6 +314,12 @@ fn only_the_bound_account_can_open_a_line() {
     let s = w.stranger.insecure_clone();
     let ix = open_line_ix(&w, &s.pubkey(), &m.subject);
     assert!(send(&mut w.svm, &[ix], &s, &[]).unwrap_err().contains("NotBoundToSigner"));
+    // and still refused once the rightful borrower has opened the line
+    let b = w.borrower.insecure_clone();
+    let ix = open_line_ix(&w, &b.pubkey(), &m.subject);
+    send(&mut w.svm, &[ix], &b, &[]).unwrap();
+    let ix = open_line_ix(&w, &s.pubkey(), &m.subject);
+    assert!(send(&mut w.svm, &[ix], &s, &[]).unwrap_err().contains("NotBoundToSigner"));
 }
 
 #[test]
@@ -360,7 +366,22 @@ fn a_receipt_funds_one_line_only() {
     send(&mut w.svm, &[ix], &b, &[]).unwrap();
     w.mint = mint2;
     let ix = open_line_ix(&w, &b.pubkey(), &m.subject);
-    assert!(send(&mut w.svm, &[ix], &b, &[]).unwrap_err().contains("ReceiptConsumed"));
+    // Refused twice over: the line for this proof already exists, and the receipt is consumed.
+    let e = send(&mut w.svm, &[ix], &b, &[]).unwrap_err();
+    assert!(e.contains("already in use") || e.contains("ReceiptConsumed"), "{e}");
+}
+
+#[test]
+fn one_wallet_can_open_a_line_per_proof() {
+    // Every visitor to the demo shares one borrower: an open line must not block the next proof.
+    let mut w = world(1, 1);
+    let b = w.borrower.insecure_clone();
+    for seed in [15, 16] {
+        let m = Msg::valid(b.pubkey(), seed);
+        attest(&mut w, &m).unwrap();
+        let ix = open_line_ix(&w, &b.pubkey(), &m.subject);
+        send(&mut w.svm, &[ix], &b, &[]).expect("a fresh proof opens its own line");
+    }
 }
 
 #[test]

@@ -4,7 +4,13 @@
 //! protocol. A pool names the audience it accepts proofs for (the hash of its verifier
 //! identifier) and a threshold. `open_line` reads a `ClaimReceipt`, checks audience,
 //! threshold, expiry and that the signer is the account the proof was bound to, consumes the
-//! receipt by CPI (one proof, one line) and opens a credit line. `draw` lends from the vault.
+//! receipt by CPI and opens a credit line. `draw` lends from the vault.
+//!
+//! A line is keyed by the proof it was opened against and its borrower
+//! (`[b"line", subject, borrower]`): one proof, one line. Keying by borrower alone would not stop
+//! anyone reusing funds (a second wallet gets around it), and it would let one open line block
+//! every later proof bound to the same account. The borrower in the seed means another wallet
+//! presenting the same receipt reaches the `NotBoundToSigner` check instead of a collision.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
@@ -133,7 +139,7 @@ pub struct OpenLine<'info> {
     pub pool: Account<'info, Pool>,
     #[account(mut)]
     pub receipt: Account<'info, ClaimReceipt>,
-    #[account(init, payer = borrower, space = 8 + CreditLine::INIT_SPACE, seeds = [b"line", pool.key().as_ref(), borrower.key().as_ref()], bump)]
+    #[account(init, payer = borrower, space = 8 + CreditLine::INIT_SPACE, seeds = [b"line", receipt.subject.as_ref(), borrower.key().as_ref()], bump)]
     pub line: Account<'info, CreditLine>,
     #[account(mut)]
     pub borrower: Signer<'info>,
@@ -148,7 +154,7 @@ pub struct OpenLine<'info> {
 pub struct Draw<'info> {
     #[account(seeds = [b"pool", pool.mint.as_ref()], bump = pool.bump, has_one = vault)]
     pub pool: Account<'info, Pool>,
-    #[account(mut, seeds = [b"line", pool.key().as_ref(), borrower.key().as_ref()], bump = line.bump, has_one = borrower, has_one = pool)]
+    #[account(mut, seeds = [b"line", line.opened_against.as_ref(), borrower.key().as_ref()], bump = line.bump, has_one = borrower, has_one = pool)]
     pub line: Account<'info, CreditLine>,
     pub borrower: Signer<'info>,
     #[account(mut)]

@@ -59,7 +59,8 @@
               },
               {
                 "kind": "account",
-                "path": "pool"
+                "path": "line.opened_against",
+                "account": "CreditLine"
               },
               {
                 "kind": "account",
@@ -245,7 +246,8 @@
               },
               {
                 "kind": "account",
-                "path": "pool"
+                "path": "receipt.subject",
+                "account": "ClaimReceipt"
               },
               {
                 "kind": "account",

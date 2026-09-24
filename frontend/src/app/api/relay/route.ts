@@ -4,7 +4,7 @@
 import { PublicKey, SystemProgram } from '@solana/web3.js'
 import { formatUnits } from '@/lib/server/units'
 import {
-  bs58, connection, decodePool, ed25519Ix, explain, explorer, keypairFrom, linePda, openLineIx, receiptPda, send, submitIx, GATE_ID, CREDIT_ID,
+  bs58, connection, decodePool, ed25519Ix, explain, explorer, keypairFrom, linePda, openLineIx, receiptPda, receiptSubject, send, submitIx, GATE_ID, CREDIT_ID,
 } from '@/lib/server/solana'
 import { clientKey, limited } from '@/lib/server/store'
 import type { CreditLine, GateTransaction } from '@/lib/data/types'
@@ -34,6 +34,10 @@ export async function POST(req: Request) {
 
   const conn = connection()
   if (body.action === 'submit') {
+    const a = body.attestation
+    if (typeof a?.message !== 'string' || typeof a.signature !== 'string' || typeof a.attestor !== 'string') {
+      return Response.json({ error: 'submit needs an attestation {message, signature, attestor}' }, { status: 400 })
+    }
     const message = Buffer.from(body.attestation.message, 'hex')
     const signature = Buffer.from(body.attestation.signature, 'hex')
     if (message.length !== 139 || signature.length !== 64) return Response.json({ error: 'malformed attestation' }, { status: 400 })
@@ -74,16 +78,22 @@ export async function POST(req: Request) {
   }
 
   if (body.action === 'open-line') {
+    if (typeof body.receipt !== 'string') return Response.json({ error: 'open-line needs a receipt address' }, { status: 400 })
     const pool = new PublicKey(process.env.POF_POOL!)
     const who = body.wallet === 'stranger' ? keypairFrom(process.env.STRANGER_SECRET_KEY ?? bs58.encode(relayer.secretKey), 'STRANGER_SECRET_KEY') : borrower
     try {
       const receipt = new PublicKey(body.receipt)
+      const receiptAcc = await conn.getAccountInfo(receipt)
+      if (!receiptAcc || !receiptAcc.owner.equals(GATE_ID)) {
+        return Response.json({ error: 'There is no pof-gate receipt at this address. Submit the attestation first.', failedAt: 'pof-credit · open_line' }, { status: 422 })
+      }
+      const subject = receiptSubject(receiptAcc.data)
       // the borrower pays rent for its CreditLine; top it up from the relayer in the same transaction
       const fund = SystemProgram.transfer({ fromPubkey: relayer.publicKey, toPubkey: who.publicKey, lamports: 5_000_000 })
-      const sig = await send(conn, [fund, openLineIx(pool, who.publicKey, receipt)], [relayer, who])
+      const sig = await send(conn, [fund, openLineIx(pool, who.publicKey, receipt, subject)], [relayer, who])
       const poolAcc = await conn.getAccountInfo(pool)
       const p = decodePool(poolAcc!.data)
-      const line = linePda(pool, who.publicKey)
+      const line = linePda(subject, who.publicKey)
       const out: CreditLine = {
         account: line.toBase58(),
         pool: pool.toBase58(),
