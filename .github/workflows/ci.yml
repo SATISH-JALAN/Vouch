@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust · clippy, tests, real proofs, WASM parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (pinned by backend/rust-toolchain.toml)
+        working-directory: backend
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+      - name: Clippy (Vouch crates, warnings are errors)
+        working-directory: backend
+        run: cargo clippy -p pof-core -p pof-zk -p pof-verify -p pof-prove -p pof-anchor -p pof-attest -p pof-wasm --all-targets --all-features -- -D warnings -A clippy::implied_bounds_in_impls
+      - name: Invariant — pof-core and pof-verify link no network client
+        working-directory: backend
+        run: |
+          for c in pof-core pof-verify pof-zk; do
+            if cargo tree -p $c --no-default-features -e normal --prefix none | grep -Eq '^(reqwest|hyper|tonic) '; then echo "$c links a network client"; exit 1; fi
+          done
+      - name: Unit and integration tests
+        working-directory: backend
+        run: cargo test --release --workspace
+      - name: Real proofs (threshold circuit, tampering, wallet path, embedded key)
+        working-directory: backend
+        run: |
+          cargo test --release -p voting-circuits --lib vouch_threshold -- --ignored
+          cargo test --release -p pof-zk --features prove -- --ignored
+          cargo test --release -p pof-prove --test wallet -- --ignored
+      - name: Build the WASM verifier
+        run: |
+          rustup target add wasm32-unknown-unknown --toolchain "$(cd backend && rustup show active-toolchain | cut -d' ' -f1)"
+          cargo install wasm-bindgen-cli --version 0.2.128 --locked
+          ./scripts/build-wasm.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: WASM ≡ native on every fixture
+        run: node scripts/verify-fixtures-wasm.mjs
+
+  solana:
+    name: Solana · build programs, LiteSVM attack tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend/solana
+      - name: Solana CLI and OpenSSL (LiteSVM precompiles)
+        run: |
+          sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Build pof-gate and pof-credit (SBF)
+        working-directory: backend/solana
+        run: |
+          cargo build-sbf --manifest-path programs/pof-gate/Cargo.toml --sbf-out-dir target/deploy
+          cargo build-sbf --manifest-path programs/pof-credit/Cargo.toml --sbf-out-dir target/deploy
+      - name: Attack tests
+        working-directory: backend/solana
+        run: cargo test -p pof-solana-tests
+
+  web:
+    name: Web · typecheck, codec parity, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - name: TypeScript codec ≡ Rust encoder on every committed proof
+        run: pnpm test:fixtures
+      - run: pnpm build
