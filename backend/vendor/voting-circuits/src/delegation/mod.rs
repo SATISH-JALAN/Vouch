@@ -20,7 +20,7 @@ pub use builder::{
 };
 pub use circuit::{rho_binding_hash, van_commitment_hash, Circuit, Instance, K};
 pub use imt::{
-    build_sentinel_list, derive_nullifier_domain, gov_null_hash, ImtError, ImtProofData,
+    build_sentinel_list, derive_nullifier_domain, DenseImtProvider, gov_null_hash, ImtError, ImtProofData,
     ImtProvider, SpacedLeafImtProvider, IMT_DEPTH,
 };
 pub use prove::{

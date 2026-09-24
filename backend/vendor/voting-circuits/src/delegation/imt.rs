@@ -365,6 +365,78 @@ impl ImtProvider for SpacedLeafImtProvider {
     }
 }
 
+/// VOUCH MODIFICATION: an IMT over any number of nullifiers.
+///
+/// [`SpacedLeafImtProvider`] is a 32-leaf fixture. This provider builds the same
+/// canonical K=2 punctured-range tree (sentinels, sorted, deduplicated, odd count,
+/// `Poseidon3` leaves, `Poseidon2` parents, empty-subtree padding) for a real
+/// nullifier set, so a verifier can recompute `nf_imt_root` from public chain data.
+#[derive(Clone, Debug)]
+pub struct DenseImtProvider {
+    root: pallas::Base,
+    leaves: Vec<[pallas::Base; 3]>,
+    levels: Vec<Vec<pallas::Base>>,
+}
+
+impl DenseImtProvider {
+    /// Builds the tree over `nullifiers` plus the protocol sentinels.
+    pub fn from_nullifiers(nullifiers: &[pallas::Base]) -> Self {
+        let sorted = build_nullifier_list(nullifiers);
+        let leaves = build_punctured_ranges_local(&sorted);
+        assert!(leaves.len() <= 1usize << IMT_DEPTH, "IMT capacity exceeded");
+        let empty = empty_imt_hashes();
+        let mut level: Vec<pallas::Base> = leaves
+            .iter()
+            .map(|b| poseidon_hash_3(b[0], b[1], b[2]))
+            .collect();
+        let mut levels = Vec::with_capacity(IMT_DEPTH);
+        for height in 0..IMT_DEPTH {
+            if level.len() % 2 == 1 {
+                level.push(empty[height]);
+            }
+            let next = level
+                .chunks(2)
+                .map(|pair| poseidon_hash_2(pair[0], pair[1]))
+                .collect();
+            levels.push(level);
+            level = next;
+        }
+        DenseImtProvider {
+            root: level[0],
+            leaves,
+            levels,
+        }
+    }
+
+    /// Number of punctured-range leaves.
+    pub fn leaf_count(&self) -> usize {
+        self.leaves.len()
+    }
+}
+
+impl ImtProvider for DenseImtProvider {
+    fn root(&self) -> pallas::Base {
+        self.root
+    }
+
+    fn non_membership_proof(&self, nf: pallas::Base) -> Result<ImtProofData, ImtError> {
+        let k = find_range_for_value(&self.leaves, nf)
+            .ok_or_else(|| ImtError(format!("nullifier {nf:?} is spent or on a boundary")))?;
+        let mut path = [pallas::Base::zero(); IMT_DEPTH];
+        let mut idx = k;
+        for (height, sibling) in path.iter_mut().enumerate() {
+            *sibling = self.levels[height][idx ^ 1];
+            idx >>= 1;
+        }
+        Ok(ImtProofData {
+            root: self.root,
+            nf_bounds: self.leaves[k],
+            leaf_pos: k as u32,
+            path,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -372,6 +444,21 @@ mod tests {
 
     fn base_from_repr(bytes: [u8; 32]) -> pallas::Base {
         pallas::Base::from_repr(bytes).expect("frozen vector must be canonical")
+    }
+
+    /// VOUCH: the dense provider reproduces the spaced-leaf fixture's root and proofs.
+    #[test]
+    fn dense_matches_spaced_fixture() {
+        let extra: Vec<pallas::Base> = (1..20u64).map(|i| pallas::Base::from(i * 1_000_003)).collect();
+        let spaced = SpacedLeafImtProvider::with_extra_nullifiers(&extra);
+        let dense = DenseImtProvider::from_nullifiers(&extra);
+        assert_eq!(spaced.root(), dense.root());
+        let probe = pallas::Base::from(5_000_000u64);
+        let a = spaced.non_membership_proof(probe).unwrap();
+        let b = dense.non_membership_proof(probe).unwrap();
+        assert_eq!(a.path, b.path);
+        assert_eq!(a.leaf_pos, b.leaf_pos);
+        assert!(dense.non_membership_proof(extra[3]).is_err(), "a spent nullifier has no proof");
     }
 
     #[test]
