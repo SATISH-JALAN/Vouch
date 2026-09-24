@@ -33,7 +33,10 @@ default = [
     "orchard",
     "sinsemilla",
     "rand",
+    "multicore",
 ]
+# VOUCH MODIFICATION: multithreading is a separate feature so wasm32 builds can leave it off.
+multicore = ["orchard?/multicore"]
 gadgets = ["dep:halo2-gadgets"]
 lrz = [
     "lrz-vct",
@@ -165,9 +168,11 @@ package = "zcash_primitives"
 version = "=1.2.0"
 features = [
     "circuit",
+    "std",
     "unstable-voting-circuits",
 ]
 optional = true
+default-features = false
 package = "zakura-orchard"
 
 [dependencies.pasta-curves]
