@@ -16,7 +16,7 @@ export const SUBMISSION = {
 
 export const LINKS = {
   /** TODO: set when the repository is public. */
-  repo: null as string | null,
+  repo: 'https://github.com/SATISH-JALAN/Vouch' as string | null,
   /** TODO: set when the Zcash forum thread is posted. */
   forum: null as string | null,
   formatSpec: '/docs/format',
@@ -30,6 +30,7 @@ export const LINKS = {
 export const NAV = [
   { href: '/verify', label: 'Verify' },
   { href: '/request', label: 'Request' },
+  { href: '/prove', label: 'Prove' },
   { href: '/demo', label: 'Demo' },
   { href: '/docs/format', label: 'Docs' },
 ] as const
