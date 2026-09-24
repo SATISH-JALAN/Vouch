@@ -1,5 +1,7 @@
 import type { Envelope, Verdict } from './data/types'
 import { claimParts, formatDate, formatInt } from './format'
+import { isUnbound } from './pof/codec'
+import { fromHex, toBase58 } from './pof/bytes'
 
 /** What a verifier learns from one proof file, and what it can never learn. */
 export function revealRows(env: Envelope, verdict: Verdict) {
@@ -10,6 +12,7 @@ export function revealRows(env: Envelope, verdict: Verdict) {
       { label: 'The claim', value: `${p.before} ${p.value}${p.after ? ` ${p.after}` : ''}${established ? '' : ' (not established)'}` },
       { label: 'As of', value: `block ${formatInt(env.anchor.height)}` },
       { label: 'Made for', value: verdict.kind === 'WrongAudience' ? 'someone else' : 'you — the audience hash matches' },
+      ...(isUnbound(env.binding) ? [] : [{ label: 'Bound to', value: `Solana account ${toBase58(fromHex(env.binding))}` }]),
       { label: 'Valid until', value: formatDate(env.expiresAt) },
       { label: 'Revocable', value: 'yes, by the holder, any time before expiry' },
     ],

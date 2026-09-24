@@ -52,8 +52,6 @@ export function present(v: V, now: number): Presentation {
       return invalid('PROOF INVALID', v.detail)
     case 'Malformed':
       return invalid('MALFORMED', v.reason)
-    case 'Unchecked':
-      return { tone: 'neutral', word: 'Not checked.', code: 'NOT VERIFIED HERE', detail: v.reason, mark: { state: 'sealed', tone: 'bone' } }
   }
 }
 
@@ -93,7 +91,6 @@ export function Verdict({ result, audienceId, className }: { result: Verificatio
   )
 
   const chipStatus: ChipStatus = p.tone
-  const fixtureChecks = result.checks.filter((c) => c.fixture && c.status === 'pass').length
   const passed = result.checks.filter((c) => c.status === 'pass').length
 
   return (
@@ -117,7 +114,7 @@ export function Verdict({ result, audienceId, className }: { result: Verificatio
               <ClaimLine claim={v.claim} anchorHeight={v.anchorHeight} />
               <p className="t-data text-ink-2">
                 Made for you · valid until {formatDate(env.expiresAt)} · {passed} of 6 checks passed
-                {fixtureChecks > 0 && ` · ${fixtureChecks} against committed fixtures`}
+                {result.anchor?.network === 'demo' && ' · demo anchor'}
               </p>
             </div>
           ) : (
@@ -134,7 +131,9 @@ export function Verdict({ result, audienceId, className }: { result: Verificatio
             <dl className="t-data-sm mt-6 grid gap-x-8 gap-y-2 border-t border-border pt-4 text-ink-3 sm:grid-cols-[auto_1fr]">
               <dt>ANCHOR</dt>
               <dd className="text-ink-2">
-                block {formatInt(env.anchor.height)} · root <Hash value={env.anchor.root} head={8} tail={6} label="tree root" />
+                block {formatInt(env.anchor.height)}
+                {result.anchor && ` (${result.anchor.network})`} · notes <Hash value={env.anchor.ncRoot} head={8} tail={6} label="note-commitment root" /> ·
+                nullifiers <Hash value={env.anchor.nfRoot} head={8} tail={6} label="nullifier-set root" />
               </dd>
               <dt>AUDIENCE</dt>
               <dd className="text-ink-2">

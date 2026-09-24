@@ -1,20 +1,20 @@
-import type { SourceKind } from '@/lib/data/types'
+import type { AnchorRecord } from '@/lib/data/types'
 import { TrustNote } from '@/components/ui/primitives'
 
 /** Every verdict surface carries this. It must be truthful about what actually ran. */
-export function SourceNote({ kind, className }: { kind: SourceKind; className?: string }) {
-  if (kind === 'wasm') {
-    return (
-      <TrustNote label="WASM" className={className}>
-        Verified in this browser by pof-verify compiled to WebAssembly: the same Rust code as the CLI. The proof was not sent anywhere.
-      </TrustNote>
-    )
-  }
+export function SourceNote({ anchor, verifier, className }: { anchor: AnchorRecord | null; verifier: string; className?: string }) {
   return (
-    <TrustNote label="FIXTURE" tone="strong" className={className}>
-      This verdict did not come from the real verifier. In your browser, the file was parsed, its blake2b checksum recomputed, and its expiry
-      and audience checked. Revocation, the anchor and the Halo2 proof were compared byte for byte against committed test vectors. No
-      zero-knowledge cryptography ran. The WASM build of pof-verify replaces this module without changing the page.
-    </TrustNote>
+    <div className={className}>
+      <TrustNote label="WASM">
+        Verified in this browser by {verifier} compiled to WebAssembly: the same Rust code as the CLI and the attestor. The Halo2 proof and
+        the holder’s signature were checked here; the proof was not sent anywhere.
+      </TrustNote>
+      {anchor?.network === 'demo' && (
+        <TrustNote label="DEMO ANCHOR" tone="strong" className="mt-3">
+          This proof is anchored to the published demo ledger, not to Zcash mainnet: the notes are real Ironwood notes under a real key and the
+          proof is real, but the commitment tree and nullifier set are ours. Mainnet anchors are rebuilt from public chain data by pof-anchor.
+        </TrustNote>
+      )}
+    </div>
   )
 }
