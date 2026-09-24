@@ -83,12 +83,35 @@ cfg_if::cfg_if! {
       }
 
       impl<I: Iterator> ParallelIterator for I {}
+
+      // VOUCH: serial shim for `par_iter` used by zakura-pasta-curves on wasm32.
+      pub trait IntoParallelRefIterator<'data> {
+          type Iter: Iterator<Item = Self::Item>;
+          type Item: Send + 'data;
+
+          fn par_iter(&'data self) -> Self::Iter;
+      }
+
+      impl<'data, I: 'data + ?Sized> IntoParallelRefIterator<'data> for I
+      where
+          &'data I: IntoParallelIterator,
+      {
+          type Iter = <&'data I as IntoParallelIterator>::Iter;
+          type Item = <&'data I as IntoParallelIterator>::Item;
+
+          #[inline(always)]
+          fn par_iter(&'data self) -> Self::Iter {
+              self.into_par_iter()
+          }
+      }
     }
     pub mod slice {
       pub trait ParallelSlice<T: Sync> {
         fn par_chunks_exact(
           &self, chunk_size: usize,
         ) -> std::slice::ChunksExact<'_, T>;
+        // VOUCH: serial shims used by zakura-pasta-curves on wasm32.
+        fn par_chunks(&self, chunk_size: usize) -> std::slice::Chunks<'_, T>;
       }
 
       impl<T: Sync> ParallelSlice<T> for [T] {
@@ -98,7 +121,34 @@ cfg_if::cfg_if! {
         ) -> std::slice::ChunksExact<'_, T> {
           self.chunks_exact(chunk_size)
         }
+        #[inline(always)]
+        fn par_chunks(&self, chunk_size: usize) -> std::slice::Chunks<'_, T> {
+          self.chunks(chunk_size)
+        }
       }
+
+      // VOUCH: serial shims used by zakura-pasta-curves on wasm32.
+      pub trait ParallelSliceMut<T: Send> {
+        fn par_chunks_mut(&mut self, chunk_size: usize) -> std::slice::ChunksMut<'_, T>;
+        fn par_chunks_exact_mut(&mut self, chunk_size: usize) -> std::slice::ChunksExactMut<'_, T>;
+      }
+
+      impl<T: Send> ParallelSliceMut<T> for [T] {
+        #[inline(always)]
+        fn par_chunks_mut(&mut self, chunk_size: usize) -> std::slice::ChunksMut<'_, T> {
+          self.chunks_mut(chunk_size)
+        }
+        #[inline(always)]
+        fn par_chunks_exact_mut(&mut self, chunk_size: usize) -> std::slice::ChunksExactMut<'_, T> {
+          self.chunks_exact_mut(chunk_size)
+        }
+      }
+    }
+
+    // VOUCH: a single-threaded target has exactly one thread.
+    #[inline(always)]
+    pub fn current_num_threads() -> usize {
+      1
     }
 
     pub mod prelude {
