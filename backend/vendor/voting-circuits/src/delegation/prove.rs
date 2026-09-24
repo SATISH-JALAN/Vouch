@@ -375,6 +375,78 @@ mod prove_tests {
         assert!(verify_delegation_proof(&proof, &wrong_round).is_err());
     }
 
+    /// VOUCH: one-note bundle worth `value` zatoshi, proving `min` ballots.
+    fn vouch_bundle(value: u64) -> crate::delegation::builder::DelegationBundle {
+        let mut rng = OsRng;
+        let sk = SpendingKey::random(&mut rng);
+        let fvk: FullViewingKey = (&sk).into();
+        let recipient = fvk.address_at(0u32, Scope::External);
+        let (_, _, dummy) = Note::dummy(&mut rng, None, NoteVersion::V3);
+        let note = Note::new(
+            recipient,
+            NoteValue::from_raw(value),
+            Rho::from_nf_old(dummy.nullifier(&fvk)),
+            NoteVersion::V3,
+            &mut rng,
+        );
+        let cmx = ExtractedNoteCommitment::from(note.commitment());
+        let leaf = MerkleHashOrchard::from_cmx(&cmx);
+        let empty = MerkleHashOrchard::empty_leaf();
+        let mut current = MerkleHashOrchard::combine(Level::from(0), &leaf, &empty);
+        let mut auth_path = [empty; 32];
+        for level in 1..32u8 {
+            auth_path[level as usize] = MerkleHashOrchard::empty_root(Level::from(level));
+            current = MerkleHashOrchard::combine(
+                Level::from(level),
+                &current,
+                &MerkleHashOrchard::empty_root(Level::from(level)),
+            );
+        }
+        let imt = SpacedLeafImtProvider::new();
+        let imt_proof = imt.non_membership_proof(note.nullifier(&fvk).inner()).unwrap();
+        build_delegation_bundle(
+            vec![RealNoteInput {
+                note,
+                fvk: fvk.clone(),
+                merkle_path: MerklePath::from_parts(0u32, auth_path),
+                imt_proof,
+                scope: Scope::External,
+            }],
+            &fvk,
+            pallas::Scalar::random(&mut rng),
+            fvk.address_at(1u32, Scope::External),
+            pallas::Base::random(&mut rng),
+            current.inner(),
+            pallas::Base::random(&mut rng),
+            &imt,
+            &mut rng,
+            None,
+        )
+        .unwrap()
+    }
+
+    /// VOUCH MODIFICATION test: the threshold public input is enforced.
+    #[test]
+    #[ignore = "real proofs; run with `cargo test --release -- --ignored vouch_threshold`"]
+    fn vouch_threshold() {
+        // 40 ballots worth (5 ZEC), plus change.
+        let b = vouch_bundle(40 * 12_500_000 + 7);
+        for (min, ok) in [(0u64, true), (1, true), (40, true), (41, false), (1_000_000, false)] {
+            let inst = b.instance.clone().with_min_ballots(min);
+            let proved = create_delegation_proof(b.circuit.clone(), &inst);
+            match (ok, proved) {
+                (true, Ok(p)) => verify_delegation_proof(&p, &inst).expect("honest threshold verifies"),
+                (false, Err(_)) => {}
+                (false, Ok(p)) => assert!(verify_delegation_proof(&p, &inst).is_err(), "min {min} must fail"),
+                (true, Err(e)) => panic!("min {min} should prove: {e}"),
+            }
+        }
+        // A proof for min 40 does not verify as a claim of 41.
+        let inst = b.instance.clone().with_min_ballots(40);
+        let p = create_delegation_proof(b.circuit.clone(), &inst).unwrap();
+        assert!(verify_delegation_proof(&p, &inst.clone().with_min_ballots(41)).is_err());
+    }
+
     #[test]
     fn prepare_delegation_proving_signature_returns_result() {
         let _: fn() -> Result<bool, ProveError> = prepare_delegation_proving;
