@@ -153,7 +153,7 @@ pub(super) fn note_rcm_scalar(note: &Note) -> pallas::Scalar {
 }
 
 // ================================================================
-// Public input offsets (14 field elements).
+// Public input offsets (15 field elements; offset 14 is a Vouch addition).
 // ================================================================
 
 /// Public input offset for the derived nullifier.
@@ -189,6 +189,13 @@ const GOV_NULL_PUBLIC_OFFSETS: [usize; 5] = [
 ];
 /// Public input offset for the nullifier domain.
 const DOM_PUBLIC_OFFSET: usize = 13;
+/// Public input offset for the minimum ballot count (Vouch threshold claims).
+///
+/// VOUCH MODIFICATION: not present upstream. The circuit constrains
+/// `num_ballots - min_ballots` to `[0, 2^30)`, so a proof can assert
+/// "at least `min_ballots` x 0.125 ZEC" without revealing `num_ballots`.
+/// `min_ballots = 0` reduces to the upstream statement.
+const MIN_BALLOTS_PUBLIC_OFFSET: usize = 14;
 
 /// Maximum number of real Ironwood notes consumed by one delegation proof.
 ///
@@ -1477,6 +1484,49 @@ impl plonk::Circuit<pallas::Base> for Circuit {
                 true, // strict: running sum terminates at 0
             )?;
 
+            // VOUCH MODIFICATION — threshold: min_ballots <= num_ballots.
+            // Copy min_ballots from the instance column, witness
+            // excess = num_ballots - min_ballots, constrain
+            // excess + min_ballots == num_ballots, and range-check excess to
+            // 30 bits. If num_ballots < min_ballots, excess wraps to ~p and the
+            // strict range check fails. num_ballots itself stays private.
+            let min_ballots = layouter.assign_region(
+                || "copy min_ballots from instance",
+                |mut region| {
+                    region.assign_advice_from_instance(
+                        || "min_ballots",
+                        config.primary,
+                        MIN_BALLOTS_PUBLIC_OFFSET,
+                        config.advices[0],
+                        0,
+                    )
+                },
+            )?;
+            let excess = num_ballots
+                .value()
+                .zip(min_ballots.value())
+                .map(|(nb, min)| *nb - *min);
+            let excess = assign_free_advice(
+                layouter.namespace(|| "witness ballot excess"),
+                config.advices[0],
+                excess,
+            )?;
+            let excess_plus_min = config.add_chip().add(
+                layouter.namespace(|| "excess + min_ballots"),
+                &excess,
+                &min_ballots,
+            )?;
+            layouter.assign_region(
+                || "excess + min_ballots == num_ballots",
+                |mut region| region.constrain_equal(excess_plus_min.cell(), num_ballots.cell()),
+            )?;
+            config.range_check_config().copy_check(
+                layouter.namespace(|| format!("ballot excess < 2^{SHARE_VALUE_BITS}")),
+                excess,
+                SHARE_VALUE_RANGE_WORDS,
+                true, // strict: running sum terminates at 0
+            )?;
+
             num_ballots
         };
 
@@ -1898,6 +1948,9 @@ pub struct Instance {
     pub gov_null: [pallas::Base; 5],
     /// The nullifier domain (ZIP §Nullifier Domains).
     pub dom: pallas::Base,
+    /// VOUCH MODIFICATION: minimum ballot count the proof asserts. Zero
+    /// reproduces the upstream statement (`num_ballots > 0`).
+    pub min_ballots: pallas::Base,
 }
 
 /// Errors returned while constructing delegation public inputs.
@@ -1919,7 +1972,7 @@ impl std::error::Error for InstanceError {}
 
 impl Instance {
     /// Number of public inputs serialized by [`Self::to_halo2_instance`].
-    pub const NUM_PUBLIC_INPUTS: usize = 14;
+    pub const NUM_PUBLIC_INPUTS: usize = 15;
 
     /// Constructs an [`Instance`] from its constituent parts.
     ///
@@ -1966,7 +2019,14 @@ impl Instance {
             nf_imt_root,
             gov_null,
             dom,
+            min_ballots: pallas::Base::from(0u64),
         })
+    }
+
+    /// VOUCH MODIFICATION: sets the threshold public input (in ballot units).
+    pub fn with_min_ballots(mut self, min_ballots: u64) -> Self {
+        self.min_ballots = pallas::Base::from(min_ballots);
+        self
     }
 
     /// Serializes the public inputs into the flat field-element vector that
@@ -1991,6 +2051,7 @@ impl Instance {
             self.gov_null[3],
             self.gov_null[4],
             self.dom,
+            self.min_ballots,
         ]
     }
 }
@@ -2551,7 +2612,8 @@ mod tests {
     fn instance_to_halo2_roundtrip() {
         let t = make_test_data();
         let pi = t.instance.to_halo2_instance();
-        assert_eq!(pi.len(), 14, "Expected exactly 14 public inputs");
+        assert_eq!(pi.len(), 15, "Expected exactly 15 public inputs (Vouch: +min_ballots)");
+        assert_eq!(pi[MIN_BALLOTS_PUBLIC_OFFSET], t.instance.min_ballots);
         assert_eq!(pi[NF_SIGNED_PUBLIC_OFFSET], t.instance.nf_signed.inner());
         assert_eq!(pi[RK_X_PUBLIC_OFFSET], t.instance.rk_x);
         assert_eq!(pi[RK_Y_PUBLIC_OFFSET], t.instance.rk_y);

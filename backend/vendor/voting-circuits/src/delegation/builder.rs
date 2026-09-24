@@ -1304,7 +1304,7 @@ mod tests {
 
     fn assert_delegation_output_shape(bundle: &DelegationBundle) {
         let pi = bundle.instance.to_halo2_instance();
-        assert_eq!(pi.len(), 14, "delegation public input shape changed");
+        assert_eq!(pi.len(), 15, "delegation public input shape changed (Vouch: +min_ballots)");
         assert_eq!(bundle.instance.gov_null.len(), 5);
         assert_eq!(pi[0], bundle.instance.nf_signed.inner());
         assert_eq!(pi[3], bundle.instance.cmx_new);
