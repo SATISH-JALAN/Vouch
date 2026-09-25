@@ -18,6 +18,9 @@ export const MAGIC = new Uint8Array([0x50, 0x4f, 0x46, 0x31]) // "POF1"
 export const FORMAT_VERSION = 1
 /** 1 unit = 0.125 ZEC. Threshold claims are proven in whole units. */
 export const ZAT_PER_UNIT = 12_500_000n
+/** Total supply bound, in zatoshi (pof_core::MAX_ZATOSHI). */
+export const MAX_ZATOSHI = 2_100_000_000_000_000
+const MAX_U32 = 0xffffffff
 
 const CLAIM_TAG: Record<Claim['kind'], number> = {
   HoldsAtLeast: 0,
@@ -108,6 +111,7 @@ class Reader {
   constructor(b: Uint8Array) {
     this.b = b
   }
+  /** Also the timestamp bound: pof_core refuses issue and expiry times above 2^53 − 1. */
   varint(): number {
     let n = 0
     let mul = 1
@@ -115,12 +119,24 @@ class Reader {
       const byte = this.u8()
       n += (byte & 0x7f) * mul
       if (!(byte & 0x80)) {
+        // A zero last group pads a shorter encoding of the same value; decoding stays injective.
+        if (byte === 0 && i > 0) throw new Error('non-canonical varint')
         if (!Number.isSafeInteger(n)) throw new Error('value exceeds 2^53')
         return n
       }
       mul *= 128
     }
     throw new Error('varint too long')
+  }
+  u32(): number {
+    const n = this.varint()
+    if (n > MAX_U32) throw new Error('value overflows u32')
+    return n
+  }
+  amount(): number {
+    const n = this.varint()
+    if (n > MAX_ZATOSHI) throw new Error('amount exceeds the 21M ZEC supply')
+    return n
   }
   u8(): number {
     if (this.o >= this.b.length) throw new Error('unexpected end of body')
@@ -163,27 +179,28 @@ export function decode(file: Uint8Array): DecodeResult {
     const tag = r.varint()
     let claim: Claim
     switch (tag) {
-      case 0: claim = { kind: 'HoldsAtLeast', zatoshi: r.varint() }; break
-      case 1: claim = { kind: 'HoldsExactly', zatoshi: r.varint() }; break
-      case 2: { const txid = hex(r.fixed(32)); claim = { kind: 'ReceivedPayment', txid, zatoshi: r.varint() }; break }
-      case 3: { const zatoshi = r.varint(); claim = { kind: 'ReceivedAtLeastSince', zatoshi, fromHeight: r.varint() }; break }
-      default: return { ok: false, reason: `Unknown claim tag ${tag}.` }
+      case 0: claim = { kind: 'HoldsAtLeast', zatoshi: r.amount() }; break
+      case 1: claim = { kind: 'HoldsExactly', zatoshi: r.amount() }; break
+      case 2: { const txid = hex(r.fixed(32)); claim = { kind: 'ReceivedPayment', txid, zatoshi: r.amount() }; break }
+      case 3: { const zatoshi = r.amount(); claim = { kind: 'ReceivedAtLeastSince', zatoshi, fromHeight: r.u32() }; break }
+      default: throw new Error(`unknown claim tag ${tag}`)
     }
     const audience = hex(r.fixed(32))
     const binding = hex(r.fixed(32))
-    const height = r.varint()
+    const height = r.u32()
     const ncRoot = hex(r.fixed(32))
     const nfRoot = hex(r.fixed(32))
     const issuedAt = r.varint()
     const expiresAt = r.varint()
+    if (issuedAt > expiresAt) throw new Error('issued after it expires')
     const revocation = hex(r.fixed(16))
     const n = r.varint()
-    if (n > 16) return { ok: false, reason: 'Too many public inputs.' }
+    if (n > 16) throw new Error('too many public inputs')
     const publicInputs: string[] = []
     for (let i = 0; i < n; i++) publicInputs.push(hex(r.fixed(32)))
     const proof = r.bytes(16 * 1024)
     const signature = hex(r.fixed(64))
-    if (r.rest !== 0) return { ok: false, reason: 'Trailing bytes after the envelope.' }
+    if (r.rest !== 0) throw new Error('trailing bytes after the envelope')
     return {
       ok: true,
       envelope: {

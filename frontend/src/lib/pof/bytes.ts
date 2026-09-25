@@ -60,7 +60,8 @@ export function toBase64Url(b: Uint8Array): string {
 
 /** Returns null on any character outside the base64url alphabet (standard base64 is accepted too). */
 export function fromBase64Url(s: string): Uint8Array | null {
-  const clean = s.trim().replace(/\s+/g, '').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_')
+  // Same rule as pof_core::from_base64url: trim, drop trailing '=', skip ASCII whitespace inside.
+  const clean = s.trim().replace(/=+$/, '').replace(/[ \t\n\f\r]+/g, '').replace(/\+/g, '-').replace(/\//g, '_')
   const out: number[] = []
   let buf = 0
   let bits = 0
