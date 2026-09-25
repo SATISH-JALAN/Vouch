@@ -20,7 +20,8 @@ pof-zk = { path = "../pof-zk", features = ["prove"] }
 pof-anchor = { path = "../pof-anchor", default-features = false }
 zcash_note_encryption = "0.4.2"
 zip32 = "0.2"
-bip39 = "2"
+bip39 = { version = "2", features = ["zeroize"] }
+zeroize = "1"
 rayon = "1"
 voting-circuits = { path = "../../vendor/voting-circuits" }
 voting-crypto-deps = { version = "=0.2.3" }

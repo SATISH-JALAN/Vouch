@@ -11,6 +11,7 @@ use voting_crypto_deps::orchard::{
     note_encryption::{CompactAction, IronwoodDomain},
 };
 use zcash_note_encryption::{try_compact_note_decryption, EphemeralKeyBytes};
+use zeroize::Zeroizing;
 
 use crate::{OwnedNote, Snapshot};
 
@@ -23,15 +24,16 @@ pub fn coin_type(network: &str) -> anyhow::Result<u32> {
     }
 }
 
-/// A seed file holds a BIP 39 mnemonic (any word count) or a hex seed (32–64 bytes).
-pub fn seed_from_file(path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
-    let text = std::fs::read_to_string(path)?;
+/// A seed file holds a BIP 39 mnemonic (any word count) or a hex seed (32–64 bytes). The text,
+/// the mnemonic and the seed are wiped from memory when dropped.
+pub fn seed_from_file(path: &std::path::Path) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+    let text = Zeroizing::new(std::fs::read_to_string(path)?);
     let t = text.trim();
     if t.split_whitespace().count() >= 12 {
         let m = bip39::Mnemonic::parse_normalized(t).map_err(|e| anyhow::anyhow!("mnemonic: {e}"))?;
-        return Ok(m.to_seed("").to_vec());
+        return Ok(Zeroizing::new(Zeroizing::new(m.to_seed("")).to_vec()));
     }
-    let seed = hex::decode(t).map_err(|_| anyhow::anyhow!("the seed file is neither a mnemonic nor hex"))?;
+    let seed = Zeroizing::new(hex::decode(t).map_err(|_| anyhow::anyhow!("the seed file is neither a mnemonic nor hex"))?);
     anyhow::ensure!((32..=64).contains(&seed.len()), "a hex seed must be 32–64 bytes");
     Ok(seed)
 }
@@ -59,6 +61,13 @@ pub fn find_notes(snap: &ChainSnapshot, fvk: &FullViewingKey) -> Vec<OwnedNote> 
             })
         })
         .collect()
+}
+
+/// Drop the notes whose nullifier the snapshot has already revealed: the answer the IMT's
+/// non-membership check gives later, without building the tree first.
+pub fn unspent(snap: &ChainSnapshot, fvk: &FullViewingKey, notes: Vec<OwnedNote>) -> Vec<OwnedNote> {
+    let revealed: std::collections::HashSet<[u8; 32]> = snap.actions.iter().map(|a| a.nullifier).collect();
+    notes.into_iter().filter(|n| !revealed.contains(&n.note.nullifier(fvk).to_bytes())).collect()
 }
 
 /// The prover's view of a chain snapshot: both trees at its height.
