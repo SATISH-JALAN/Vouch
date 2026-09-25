@@ -46,7 +46,7 @@ export function StackMap({ active, onActive }: { active: string | null; onActive
             onMouseEnter={() => onActive(p.id)}
             onFocus={() => onActive(p.id)}
             onBlur={() => onActive(null)}
-            onClick={() => onActive(active === p.id ? null : p.id)}
+            onClick={() => onActive(p.id)}
             aria-pressed={active === p.id}
             aria-label={`${p.label}: ${p.note}`}
             style={{ left: `${p.x}%`, top: `${p.y}%` }}

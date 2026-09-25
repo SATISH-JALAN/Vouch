@@ -119,7 +119,7 @@ export function SideBySide({ hasImage = false }: { hasImage?: boolean }) {
           <div className="border-b border-border lg:border-b-0 lg:border-r">
             <div className="flex h-[42px] items-center justify-between border-b border-border px-5">
               <span className="t-data-sm uppercase tracking-[0.12em] text-ink-2">Viewing key</span>
-              <Chip>11 disclosures</Chip>
+              <Chip>{VIEWING_KEY.length} disclosures</Chip>
             </div>
             <p className="t-title px-5 pt-6 sm:px-8">You share a viewing key.</p>
             <p className="t-data-sm px-5 pb-4 pt-1 text-ink-3 sm:px-8">Everything opens, permanently.</p>
@@ -143,7 +143,7 @@ export function SideBySide({ hasImage = false }: { hasImage?: boolean }) {
             <p className="t-data-sm px-5 pb-4 pt-1 text-ink-3 sm:px-8">One line opens. The rest never will.</p>
             <div className="border-t border-border px-5 py-[9px] sm:px-8">
               <p className="t-data text-seal">
-                <Redact reveal>Holds ≥ 500.00 ZEC at block {formatInt(ANCHOR.height)}</Redact>
+                <Redact reveal>Holds ≥ 500 ZEC at block {formatInt(ANCHOR.height)}</Redact>
               </p>
             </div>
             <dl className="pb-4">

@@ -18,7 +18,6 @@ export function Nav() {
   const landing = pathname === '/'
   const [stuck, setStuck] = useState(false)
   const bar = useRef<HTMLElement>(null)
-  const logo = useRef<HTMLAnchorElement>(null)
 
   useGSAP(
     () => {
@@ -41,18 +40,6 @@ export function Nav() {
     { dependencies: [stuck, landing] },
   )
 
-  // bar 4 blinks to an outline and back: a one-frame tell that the thing opens
-  const { contextSafe } = useGSAP({ scope: logo })
-  const blink = contextSafe(() => {
-    if (!motionOK()) return
-    const line = logo.current?.querySelector('.v-line')
-    if (!line) return
-    gsap
-      .timeline()
-      .to(line, { attr: { 'fill-opacity': 0, 'stroke-opacity': 1 }, duration: D.xs / 2, ease: 'none' })
-      .to(line, { attr: { 'fill-opacity': 1, 'stroke-opacity': 0 }, duration: D.xs / 2, ease: 'none' }, `+=${D.xs}`)
-  })
-
   const dark = landing && !stuck
 
   return (
@@ -66,8 +53,8 @@ export function Nav() {
         !landing && 'sticky top-0 border-b border-rule bg-bone text-ink',
       )}
     >
-      <nav className="wrap flex h-16 items-center justify-between gap-6" aria-label="Primary">
-        <Link ref={logo} href="/" onMouseEnter={blink} onFocus={blink} data-nav-mark="" className="-ml-[3px] rounded-chip" aria-label="Vouch — home">
+      <nav className="wrap flex h-16 items-center justify-between gap-3 min-[400px]:gap-6" aria-label="Primary">
+        <Link href="/" data-nav-mark="" className="-ml-[3px] rounded-chip" aria-label="Vouch — home">
           <span className="hidden md:inline-flex">
             <Logo variant="horizontal" surface={dark ? 'shielded' : 'bone'} />
           </span>
@@ -75,7 +62,8 @@ export function Nav() {
             <Logo variant="mark" surface={dark ? 'shielded' : 'bone'} />
           </span>
         </Link>
-        <ul className="flex items-center gap-4 text-[14px] sm:gap-7">
+        {/* five links and the mark must fit 320px: tighter below 400px */}
+        <ul className="flex items-center gap-2.5 text-[13px] min-[400px]:gap-4 min-[400px]:text-[14px] sm:gap-7">
           {NAV.map((n) => {
             const current = pathname === n.href || (n.href.startsWith('/docs') && pathname.startsWith('/docs'))
             return (

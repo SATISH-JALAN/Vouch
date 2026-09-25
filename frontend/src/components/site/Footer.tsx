@@ -76,12 +76,9 @@ export function Footer() {
             <span className="grid h-8 w-8 place-items-center rounded-full border border-rule-dark transition-colors group-hover:border-on-dark">↑</span>
           </button>
         </div>
-        <div className="flex flex-col gap-3 border-t border-rule-dark pt-5 lg:flex-row lg:items-baseline lg:justify-between lg:gap-10">
-          
-          <p className="shrink-0 uppercase tracking-[0.14em]">
-            {SUBMISSION.event} · {SUBMISSION.track}
-          </p>
-        </div>
+        <p className="border-t border-rule-dark pt-5 uppercase tracking-[0.14em]">
+          {SUBMISSION.event} · {SUBMISSION.track}
+        </p>
       </div>
 
       {/* the name, running off the page */}

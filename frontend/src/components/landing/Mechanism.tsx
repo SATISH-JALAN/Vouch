@@ -18,13 +18,13 @@ const STAGES = [
     title: 'Locate the notes',
     img: '/visuals/step-2-locate.webp',
     alt: 'Oil painting: a clerk on a ladder threads a path through an archive of pigeonholes.',
-    body: 'Using the wallet’s own view of what it owns, the prover builds a path from each note to that snapshot, and shows each is unspent without revealing it. This ties the claim to real, on-chain money.',
+    body: 'With keys derived from your seed, the prover finds your notes in that snapshot, builds a path from each one to it, and shows each is unspent without revealing it. This ties the claim to real, on-chain money.',
   },
   {
     title: 'Sign without sending',
     img: '/visuals/step-3-sign.webp',
     alt: 'Oil painting: a letter is signed, then placed in a drawer instead of the post.',
-    body: 'You authorise with your normal spending key, through the normal signing path. The result is transaction-shaped and is never broadcast.',
+    body: 'The prover reads your seed from a local file and signs with the spending key it derives. The seed never leaves your machine. The result is transaction-shaped and is never broadcast.',
   },
   {
     title: 'Produce the proof',
@@ -120,7 +120,7 @@ export function Mechanism() {
         </div>
       </div>
       <div className="wrap pb-[var(--s-end)] pt-12 lg:pt-0">
-        <TrustNote label="NO BROADCAST">Nothing is broadcast. The transaction is built, signed through your normal wallet, and discarded.</TrustNote>
+        <TrustNote label="NO BROADCAST">Nothing is broadcast. The prover reads your seed from a local file, builds and signs the transaction on your machine, and discards it. The seed never leaves your machine.</TrustNote>
       </div>
     </section>
   )

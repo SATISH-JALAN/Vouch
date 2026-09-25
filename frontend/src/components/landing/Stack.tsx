@@ -11,7 +11,7 @@ import { PLACES, StackMap } from './StackMap'
 
 const COMPONENTS: Record<string, { lang: string; job: string }> = {
   'pof-core': { lang: 'Rust', job: 'Claim types, the proof envelope, encoding. No I/O, no network.' },
-  'pof-anchor': { lang: 'Rust CLI', job: 'Rebuilds both roots from public compact blocks; checks them against lightwalletd.' },
+  'pof-anchor': { lang: 'Rust CLI', job: 'Rebuilds both roots from public compact blocks; checks the note-commitment root against lightwalletd.' },
   'pof-zk': { lang: 'Rust · Halo2', job: 'The delegation circuit with one added constraint: the threshold. No trusted setup.' },
   'pof-prove': { lang: 'Rust CLI', job: 'Reads wallet state, pins an anchor, drives the circuit, writes proof.pof.' },
   'pof-verify': { lang: 'Rust → WASM', job: 'Six checks, cheapest first. One implementation, compiled twice.' },
@@ -20,7 +20,7 @@ const COMPONENTS: Record<string, { lang: string; job: string }> = {
   'pof-credit': { lang: 'Anchor', job: 'Example consumer: opens a credit line against a threshold receipt.' },
 }
 
-// The same river as the map: three pieces on the Zcash bank, two on the Solana bank, one hop between.
+// The same river as the map: five pieces on the Zcash bank, two on the Solana bank, one hop between.
 const BANKS = [
   { label: 'Zcash side', note: 'On the holder’s machine, and in anyone’s browser.', rows: ['pof-core', 'pof-anchor', 'pof-zk', 'pof-prove', 'pof-verify'] },
   { label: 'The crossing', note: 'The one trusted hop.', rows: ['pof-attest'] },
@@ -73,7 +73,7 @@ export function Stack() {
   )
 }
 
-/** Traction, counted honestly: verdicts only, never proof bytes or who asked. */
+/** Traction, counted honestly: verdicts only, never proof bytes or who asked. Only checks started on /verify count. */
 function VerifiedCount() {
   const [stats, setStats] = useState<{ total: number; byVerdict: Record<string, number> } | null>(null)
   useEffect(() => {
@@ -86,7 +86,7 @@ function VerifiedCount() {
   const valid = stats.byVerdict.Valid ?? 0
   return (
     <p className="t-data-sm -mt-6 text-ink-3" aria-live="polite">
-      {stats.total.toLocaleString('en-US')} proofs checked on this site so far · {valid.toLocaleString('en-US')} valid ·{' '}
+      {stats.total.toLocaleString('en-US')} verifications run on /verify so far · {valid.toLocaleString('en-US')} valid ·{' '}
       {(stats.total - valid).toLocaleString('en-US')} refused. Only the verdict is counted.
     </p>
   )
