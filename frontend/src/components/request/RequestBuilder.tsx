@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import type { ClaimKind, ProofRequest } from '@/lib/data/types'
-import { cliCommand, demoCliCommand, encodeRequest, newRequestId, PROVABLE, ZAT_PER_UNIT } from '@/lib/request'
+import { audienceProblem, cliCommand, demoCliCommand, encodeRequest, MAX_ZATOSHI, newRequestId, PROVABLE, ZAT_PER_UNIT } from '@/lib/request'
 import { audienceHash } from '@/lib/pof/hash'
-import { claimParts, formatDate, formatInt, formatZec } from '@/lib/format'
+import { claimParts, formatDate, formatInt, formatZec, formatZecExact } from '@/lib/format'
 import { Chip, cx, Panel, TrustNote } from '@/components/ui/primitives'
+import { CopyBlock } from '@/components/ui/CopyBlock'
 import { Hash } from '@/components/ui/Hash'
 import { toZatoshi, trimZec, useRequest } from './store'
 
@@ -18,9 +19,8 @@ const CLAIMS: { kind: ClaimKind; label: string; hint: string }[] = [
 
 const EXPIRY = [1, 7, 30]
 const RESPOND = [0, 1, 3, 7]
-const MAX_ZAT = 21_000_000n * 100_000_000n
 
-function useBuilt(id: string): { request: ProofRequest | null; errors: Record<string, string>; roundUp: bigint | null } {
+function useBuilt(id: string): { request: ProofRequest | null; errors: Record<string, string>; roundUp: bigint | null; zat: bigint | null } {
   const s = useRequest()
   return useMemo(() => {
     const errors: Record<string, string> = {}
@@ -28,14 +28,15 @@ function useBuilt(id: string): { request: ProofRequest | null; errors: Record<st
     const zat = toZatoshi(s.amount, s.unit)
     if (zat === null) errors.amount = s.unit === 'ZEC' ? 'A number with at most 8 decimals.' : 'A whole number of zatoshi.'
     else if (zat <= 0n) errors.amount = 'Must be greater than zero.'
-    else if (zat > MAX_ZAT) errors.amount = 'More than 21 million ZEC will ever exist.'
+    else if (zat > MAX_ZATOSHI) errors.amount = 'More than 21 million ZEC will ever exist.'
     else if (zat % ZAT_PER_UNIT !== 0n) {
       roundUp = (zat / ZAT_PER_UNIT + 1n) * ZAT_PER_UNIT
-      errors.amount = `Thresholds are proven in 0.125 ZEC steps. The next step up is ${formatZec(roundUp, 3)} ZEC.`
+      errors.amount = `Thresholds are proven in 0.125 ZEC steps. The next step up is ${formatZecExact(roundUp)} ZEC.`
     }
-    if (!s.audience.trim()) errors.audience = 'Name the one party this proof is for.'
+    const audience = audienceProblem(s.audience)
+    if (audience) errors.audience = audience
     if (!PROVABLE.includes(s.claim)) errors.claim = 'Not provable yet.'
-    if (Object.keys(errors).length || zat === null) return { request: null, errors, roundUp }
+    if (Object.keys(errors).length || zat === null) return { request: null, errors, roundUp, zat }
     const request: ProofRequest = {
       v: 1,
       id,
@@ -43,14 +44,15 @@ function useBuilt(id: string): { request: ProofRequest | null; errors: Record<st
       zatoshi: zat.toString(),
       audience: s.audience.trim(),
       expiryDays: s.expiryDays,
-      ...(s.respondDays ? { respondBy: Math.floor(Date.now() / 86_400_000 + s.respondDays) * 86_400 } : {}),
+      // the last second (UTC) of the named day, so "answer by 3 Oct" still accepts an answer on 3 Oct
+      ...(s.respondDays ? { respondBy: (Math.floor(Date.now() / 86_400_000) + s.respondDays + 1) * 86_400 - 1 } : {}),
       ...(s.bindSolana ? { bind: 'solana' as const } : {}),
     }
-    return { request, errors, roundUp }
+    return { request, errors, roundUp, zat }
   }, [s, id])
 }
 
-export function sentence(r: ProofRequest) {
+function sentence(r: ProofRequest) {
   return claimParts({ kind: 'HoldsAtLeast', zatoshi: Number(r.zatoshi) })
 }
 
@@ -58,7 +60,16 @@ export function RequestBuilder() {
   const s = useRequest()
   const [id, setId] = useState('0000000000000000')
   const [origin, setOrigin] = useState('')
-  const { request, errors, roundUp } = useBuilt(id)
+  const { request, errors, roundUp, zat } = useBuilt(id)
+  // the field keeps what is typed; the store gets a clamped number, so clearing "7" to type "30" works
+  const [expiryText, setExpiryText] = useState(String(s.expiryDays))
+  useEffect(() => setExpiryText(String(s.expiryDays)), [s.expiryDays])
+  const commitExpiry = () => {
+    const n = Number(expiryText)
+    const days = expiryText.trim() && Number.isFinite(n) ? Math.max(1, Math.min(365, Math.round(n))) : s.expiryDays
+    s.set({ expiryDays: days })
+    setExpiryText(String(days))
+  }
 
   // Old links pointed at /request?r=…; the holder's side now lives at /prove.
   useEffect(() => {
@@ -130,11 +141,7 @@ export function RequestBuilder() {
             </div>
           </div>
           <p id="amount-help" className={cx('t-data-sm mt-2', errors.amount ? 'text-invalid' : 'text-ink-3')}>
-            {errors.amount ??
-              (() => {
-                const z = toZatoshi(s.amount, s.unit)
-                return z === null ? '' : s.unit === 'ZEC' ? `= ${formatInt(z)} zatoshi · proven in 0.125 ZEC steps` : `= ${formatZec(z)} ZEC`
-              })()}
+            {errors.amount ?? (zat === null ? '' : s.unit === 'ZEC' ? `= ${formatInt(zat)} zatoshi · proven in 0.125 ZEC steps` : `= ${formatZec(zat)} ZEC`)}
             {roundUp !== null && (
               <button
                 type="button"
@@ -148,7 +155,15 @@ export function RequestBuilder() {
         </div>
 
         <Field id="audience" label="AUDIENCE" error={errors.audience} hint="Your verifier identifier. The proof carries only its hash, never this name.">
-          <input id="audience" className="field t-data" value={s.audience} onChange={(e) => s.set({ audience: e.target.value })} spellCheck={false} />
+          <input
+            id="audience"
+            className="field t-data"
+            value={s.audience}
+            onChange={(e) => s.set({ audience: e.target.value })}
+            spellCheck={false}
+            aria-invalid={!!errors.audience}
+            aria-describedby="audience-help"
+          />
           {s.audience.trim() && (
             <p className="t-data-sm mt-2 text-ink-3">
               blake2b → <Hash value={audienceHash(s.audience)} head={10} tail={8} label="audience hash" />
@@ -177,8 +192,13 @@ export function RequestBuilder() {
                 min={1}
                 max={365}
                 className="field t-data h-[38px] w-20 px-3"
-                value={s.expiryDays}
-                onChange={(e) => s.set({ expiryDays: Math.max(1, Math.min(365, Math.round(Number(e.target.value)) || 1)) })}
+                value={expiryText}
+                onChange={(e) => {
+                  setExpiryText(e.target.value)
+                  const n = Number(e.target.value)
+                  if (Number.isInteger(n) && n >= 1 && n <= 365) s.set({ expiryDays: n })
+                }}
+                onBlur={commitExpiry}
                 aria-label="Expiry in days"
               />
               days
@@ -260,33 +280,9 @@ function Field({ id, label, hint, error, children }: { id: string; label: string
         {label}
       </label>
       {children}
-      <p className={cx('t-data-sm mt-2', error ? 'text-invalid' : 'text-ink-3')}>{error ?? hint}</p>
-    </div>
-  )
-}
-
-export function CopyBlock({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <div className="mt-6">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="t-eyebrow text-ink-3">{label}</span>
-        <button
-          type="button"
-          className="t-data-sm uppercase tracking-[0.12em] text-ink-2 hover:text-ink"
-          data-cursor="COPY"
-          onClick={async () => {
-            await navigator.clipboard.writeText(value).catch(() => {})
-            setCopied(true)
-            setTimeout(() => setCopied(false), 600)
-          }}
-        >
-          <span className={copied ? 'text-valid' : undefined}>{copied ? 'Copied' : 'Copy'}</span>
-        </button>
-      </div>
-      <pre className="t-data-sm overflow-x-auto whitespace-pre-wrap break-all rounded-chip border border-border bg-bone-2 p-4 text-ink" data-lenis-prevent="">
-        {value}
-      </pre>
+      <p id={`${id}-help`} className={cx('t-data-sm mt-2', error ? 'text-invalid' : 'text-ink-3')}>
+        {error ?? hint}
+      </p>
     </div>
   )
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import { create } from 'zustand'
-import type { ClaimKind, ProofRequest } from '@/lib/data/types'
+import type { ClaimKind } from '@/lib/data/types'
 import { DEMO_AUDIENCE } from '@/lib/data/chain'
 import { formatZec } from '@/lib/format'
 
@@ -16,11 +16,8 @@ interface RequestState {
   /** Days the holder has to respond; 0 = no deadline. */
   respondDays: number
   bindSolana: boolean
-  txid: string
-  fromHeight: string
-  set: (patch: Partial<Omit<RequestState, 'set' | 'load' | 'setUnit'>>) => void
+  set: (patch: Partial<Omit<RequestState, 'set' | 'setUnit'>>) => void
   setUnit: (u: Unit) => void
-  load: (r: ProofRequest) => void
 }
 
 export const useRequest = create<RequestState>((set, get) => ({
@@ -31,8 +28,6 @@ export const useRequest = create<RequestState>((set, get) => ({
   expiryDays: 7,
   respondDays: 0,
   bindSolana: false,
-  txid: '',
-  fromHeight: '',
   set: (patch) => set(patch),
   // switching units converts the value rather than reinterpreting it
   setUnit: (u) => {
@@ -41,15 +36,6 @@ export const useRequest = create<RequestState>((set, get) => ({
     const zat = toZatoshi(amount, unit)
     set({ unit: u, amount: zat === null ? amount : u === 'zat' ? zat.toString() : trimZec(formatZec(zat).replace(/,/g, '')) })
   },
-  load: (r) =>
-    set({
-      claim: r.claim,
-      unit: 'ZEC',
-      amount: trimZec(formatZec(r.zatoshi).replace(/,/g, '')),
-      audience: r.audience,
-      expiryDays: r.expiryDays,
-      bindSolana: r.bind === 'solana',
-    }),
 }))
 
 export function toZatoshi(amount: string, unit: Unit): bigint | null {
