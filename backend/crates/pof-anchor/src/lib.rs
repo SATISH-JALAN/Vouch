@@ -60,6 +60,7 @@ const RECORD: usize = 32 + 32 + 32 + 52;
 
 impl Snapshot {
     pub fn write(&self, w: &mut impl Write) -> anyhow::Result<()> {
+        anyhow::ensure!(self.network.len() <= 255, "network name longer than 255 bytes");
         let mut buf = Vec::with_capacity(64 + self.actions.len() * RECORD);
         buf.extend_from_slice(MAGIC);
         buf.extend_from_slice(&VERSION.to_le_bytes());
@@ -80,34 +81,30 @@ impl Snapshot {
         Ok(())
     }
 
+    /// Snapshots are downloaded files: every malformed one is an error, never a panic.
     pub fn read(r: &mut impl Read) -> anyhow::Result<Self> {
         let mut b = Vec::new();
         r.read_to_end(&mut b)?;
         anyhow::ensure!(b.len() > 4 + 2 + 1 + 4 + 32 + 8 + 32, "snapshot too short");
         let (body, sum) = b.split_at(b.len() - 32);
         anyhow::ensure!(blake2b_simd::Params::new().hash_length(32).hash(body).as_bytes() == sum, "snapshot checksum mismatch");
-        anyhow::ensure!(&body[..4] == MAGIC, "not a Vouch snapshot");
-        anyhow::ensure!(u16::from_le_bytes([body[4], body[5]]) == VERSION, "unknown snapshot version");
-        let nlen = body[6] as usize;
-        let mut o = 7;
-        let network = String::from_utf8(body[o..o + nlen].to_vec())?;
-        o += nlen;
-        let height = u32::from_le_bytes(body[o..o + 4].try_into()?);
-        o += 4;
-        let block_hash: [u8; 32] = body[o..o + 32].try_into()?;
-        o += 32;
-        let count = u64::from_le_bytes(body[o..o + 8].try_into()?) as usize;
-        o += 8;
-        anyhow::ensure!(body.len() == o + count * RECORD, "snapshot length does not match its count");
-        let mut actions = Vec::with_capacity(count);
-        for rec in body[o..].as_chunks::<RECORD>().0 {
-            actions.push(Action {
-                nullifier: rec[0..32].try_into()?,
-                cmx: rec[32..64].try_into()?,
-                epk: rec[64..96].try_into()?,
-                ciphertext: rec[96..148].try_into()?,
-            });
-        }
+        let mut c = Cursor(body);
+        anyhow::ensure!(&c.array::<4>()? == MAGIC, "not a Vouch snapshot");
+        anyhow::ensure!(u16::from_le_bytes(c.array()?) == VERSION, "unknown snapshot version");
+        let [nlen] = c.array()?;
+        let network = String::from_utf8(c.take(nlen as usize)?.to_vec())?;
+        let height = u32::from_le_bytes(c.array()?);
+        let block_hash = c.array()?;
+        let count = u64::from_le_bytes(c.array()?);
+        let (records, rest) = c.0.as_chunks::<RECORD>();
+        anyhow::ensure!(rest.is_empty() && records.len() as u64 == count, "snapshot length does not match its count");
+        let actions = records
+            .iter()
+            .map(|rec| {
+                let mut c = Cursor(rec);
+                Ok(Action { nullifier: c.array()?, cmx: c.array()?, epk: c.array()?, ciphertext: c.array()? })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
         Ok(Snapshot { network, height, block_hash, actions })
     }
 
@@ -142,15 +139,134 @@ impl Snapshot {
     }
 }
 
-/// Merge `record` into an anchor table file, keeping it sorted and free of duplicates.
+/// A bounds-checked reader over a byte slice.
+struct Cursor<'a>(&'a [u8]);
+
+impl<'a> Cursor<'a> {
+    fn take(&mut self, n: usize) -> anyhow::Result<&'a [u8]> {
+        anyhow::ensure!(n <= self.0.len(), "snapshot truncated");
+        let (head, rest) = self.0.split_at(n);
+        self.0 = rest;
+        Ok(head)
+    }
+
+    fn array<const N: usize>(&mut self) -> anyhow::Result<[u8; N]> {
+        Ok(self.take(N)?.try_into()?)
+    }
+}
+
+/// Merge `record` into an anchor table file, keeping it sorted and free of duplicates. A
+/// published anchor is never silently replaced: a different record for the same network and
+/// height is an error, and the file is left as it was.
 pub fn publish(path: &std::path::Path, record: AnchorRecord) -> anyhow::Result<Vec<AnchorRecord>> {
     let mut table: Vec<AnchorRecord> = match std::fs::read(path) {
         Ok(b) => serde_json::from_slice(&b)?,
-        Err(_) => vec![],
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => vec![],
+        Err(e) => return Err(e.into()),
     };
-    table.retain(|r| !(r.network == record.network && r.height == record.height));
     table.push(record);
-    table.sort_by_key(|r| (r.network.clone(), r.height));
-    std::fs::write(path, serde_json::to_vec_pretty(&table)?)?;
+    // stable, so identical records end up adjacent and dedup removes them
+    table.sort_by(|a, b| (&a.network, a.height).cmp(&(&b.network, b.height)));
+    table.dedup();
+    if let Some(w) = table.windows(2).find(|w| w[0].network == w[1].network && w[0].height == w[1].height) {
+        anyhow::bail!("{} already has a different anchor for {} block {}: not replacing it", path.display(), w[0].network, w[0].height);
+    }
+    // temp file, then rename: a failed write never leaves a truncated table
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_vec_pretty(&table)?)?;
+    std::fs::rename(&tmp, path)?;
     Ok(table)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snapshot() -> Snapshot {
+        let action = |i: u8| Action { nullifier: [i; 32], cmx: [i + 1; 32], epk: [i + 2; 32], ciphertext: [i + 3; 52] };
+        Snapshot { network: "mainnet".into(), height: 3_493_000, block_hash: [9; 32], actions: vec![action(1), action(10)] }
+    }
+
+    fn bytes(s: &Snapshot) -> Vec<u8> {
+        let mut b = vec![];
+        s.write(&mut b).unwrap();
+        b
+    }
+
+    /// Re-seal a crafted body the way a forger would, so it passes the checksum.
+    fn seal(mut body: Vec<u8>) -> Vec<u8> {
+        let sum = blake2b_simd::Params::new().hash_length(32).hash(&body);
+        body.extend_from_slice(sum.as_bytes());
+        body
+    }
+
+    #[test]
+    fn round_trips() {
+        let s = snapshot();
+        let back = Snapshot::read(&mut &bytes(&s)[..]).unwrap();
+        assert_eq!((back.network, back.height, back.block_hash, back.actions), (s.network, s.height, s.block_hash, s.actions));
+    }
+
+    #[test]
+    fn crafted_files_are_errors_not_panics() {
+        let good = bytes(&snapshot());
+        let body = good[..good.len() - 32].to_vec();
+        let count_at = 4 + 2 + 1 + 7 + 4 + 32;
+        let mut cases = vec![];
+        // network length past the end of the file
+        let mut b = body[..100].to_vec();
+        b[6] = 255;
+        cases.push(b);
+        // count that overflows count * RECORD
+        let mut b = body.clone();
+        b[count_at..count_at + 8].copy_from_slice(&u64::MAX.to_le_bytes());
+        cases.push(b);
+        // count one more than the records present, and a partial record
+        let mut b = body.clone();
+        b[count_at..count_at + 8].copy_from_slice(&3u64.to_le_bytes());
+        cases.push(b);
+        let mut b = body.clone();
+        b.truncate(b.len() - 1);
+        cases.push(b);
+        // header cut inside the block hash
+        cases.push(body[..count_at - 5].to_vec());
+        for (i, b) in cases.into_iter().enumerate() {
+            assert!(Snapshot::read(&mut &seal(b)[..]).is_err(), "case {i}");
+        }
+        for n in 0..good.len() {
+            assert!(Snapshot::read(&mut &good[..n]).is_err());
+        }
+    }
+
+    #[test]
+    fn long_network_names_are_refused() {
+        let s = Snapshot { network: "x".repeat(256), ..snapshot() };
+        assert!(s.write(&mut vec![]).is_err());
+    }
+
+    #[test]
+    fn publish_merges_and_never_replaces() {
+        let dir = std::env::temp_dir().join(format!("pof-anchor-publish-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("anchors.json");
+        let rec = |network: &str, height: u32, root: &str| AnchorRecord {
+            network: network.into(),
+            height,
+            block_hash: Some("00".repeat(32)),
+            nc_root: root.into(),
+            nf_root: root.into(),
+        };
+        assert_eq!(publish(&path, rec("mainnet", 2, "aa")).unwrap().len(), 1);
+        assert_eq!(publish(&path, rec("mainnet", 1, "bb")).unwrap().len(), 2);
+        let table = publish(&path, rec("mainnet", 2, "aa")).unwrap();
+        assert_eq!(table.iter().map(|r| r.height).collect::<Vec<_>>(), [1, 2], "sorted, and the same record once");
+        let before = std::fs::read(&path).unwrap();
+        assert!(publish(&path, rec("mainnet", 2, "cc")).is_err(), "different roots at a published height");
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        // an existing file that does not parse is an error, not an empty table
+        std::fs::write(&path, b"not json").unwrap();
+        assert!(publish(&path, rec("mainnet", 3, "dd")).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"not json");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

@@ -1,10 +1,12 @@
 //! pof-anchor — rebuild and publish Vouch anchors from public chain data.
 //!
-//!   pof-anchor scan   --server https://zec.rocks:443 --network mainnet [--to tip-100] --out snapshots/
-//!   pof-anchor check  --snapshot snapshots/mainnet-3500000.vsnp --server …   (re-derive and compare)
+//!   pof-anchor scan   --server https://zec.rocks:443 --network mainnet [--to tip-100] --out target/snapshots/
+//!   pof-anchor check  --snapshot target/snapshots/mainnet-3500000.vsnp --server …   (re-derive and compare)
+//!
+//! Defaults assume the working directory the READMEs use: backend/.
 //!
 //! `scan` streams every Ironwood compact action since activation, rebuilds the note-commitment
-//! tree and checks its root and size against lightwalletd's own tree state, builds the
+//! tree and checks its root, size and block hash against lightwalletd's own tree state, builds the
 //! spent-nullifier IMT, writes the snapshot, and merges the anchor into the published table.
 
 use std::{path::PathBuf, time::Instant};
@@ -32,10 +34,10 @@ enum Cmd {
         /// Anchor height. Default: tip − 100, rounded down to a multiple of 1,000 (finalised).
         #[arg(long)]
         to: Option<u32>,
-        #[arg(long, default_value = "snapshots")]
+        #[arg(long, default_value = "target/snapshots")]
         out: PathBuf,
         /// Anchor table to merge into.
-        #[arg(long, default_value = "fixtures/anchors.mainnet.json")]
+        #[arg(long, default_value = "../fixtures/anchors.mainnet.json")]
         table: PathBuf,
     },
     Check {
@@ -77,7 +79,10 @@ async fn finish(lwd: &mut Lightwalletd, snap: Snapshot, write: Option<(&PathBuf,
     let (root, size, hash) = lwd.ironwood_root(snap.height).await?;
     anyhow::ensure!(size as usize == tree.size(), "tree size {} disagrees with lightwalletd's {size}", tree.size());
     anyhow::ensure!(root == tree.root(), "note-commitment root disagrees with lightwalletd's tree state");
-    eprintln!("✓ nc_root matches lightwalletd's Ironwood tree state at {} (block {hash})", snap.height);
+    // the record holds the compact block's hash reversed into display order, as the tree state does
+    let ours = record.block_hash.as_deref().unwrap_or_default();
+    anyhow::ensure!(ours.eq_ignore_ascii_case(&hash), "block hash {ours} disagrees with lightwalletd's {hash} at {}", snap.height);
+    eprintln!("✓ nc_root and block hash match lightwalletd's Ironwood tree state at {} (block {hash})", snap.height);
     if let Some((out, table)) = write {
         std::fs::create_dir_all(out)?;
         let path = out.join(format!("{}-{}.vsnp", snap.network, snap.height));

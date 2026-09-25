@@ -28,7 +28,8 @@ impl Lightwalletd {
         Ok(self.inner.get_latest_block(ChainSpec {}).await?.into_inner().height as u32)
     }
 
-    /// The Ironwood note-commitment root and tree size lightwalletd reports at `height`.
+    /// The Ironwood note-commitment root, the tree size and the block hash (hex, display order)
+    /// lightwalletd reports at `height`.
     pub async fn ironwood_root(&mut self, height: u32) -> anyhow::Result<([u8; 32], u64, String)> {
         let ts = self.inner.get_tree_state(BlockId { height: height as u64, hash: vec![] }).await?.into_inner();
         let tree = ts.ironwood_tree()?;
@@ -50,9 +51,7 @@ impl Lightwalletd {
             let block = block?;
             anyhow::ensure!(block.height as u32 == last_height + 1, "gap in the block stream at {}", block.height);
             last_height = block.height as u32;
-            if block.hash.len() == 32 {
-                last_hash.copy_from_slice(&block.hash);
-            }
+            last_hash = block.hash.as_slice().try_into().map_err(|_| anyhow::anyhow!("block {last_height} came without its 32-byte hash"))?;
             for tx in block.vtx {
                 for a in tx.ironwood_actions {
                     actions.push(Action {
