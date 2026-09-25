@@ -49,7 +49,7 @@ pub enum Verdict {
 }
 
 impl Verdict {
-    /// CLI exit code: 0 valid · 1 invalid · 2 expired · 3 malformed.
+    /// CLI exit code: 0 valid · 1 invalid · 2 expired · 3 malformed. The CLI keeps 4 for "could not run".
     pub fn exit_code(&self) -> i32 {
         match self {
             Verdict::Valid { .. } => 0,
@@ -211,7 +211,7 @@ pub fn verify(input: &[u8], ctx: &Context) -> VerificationResult {
     set(0, CheckStatus::Pass, format!("POF1 · version 1 · {} bytes · checksum ok", thousands(size as u64)));
 
     // 2 · expiry
-    if ctx.now > env.expires_at {
+    if ctx.now >= env.expires_at {
         set(1, CheckStatus::Fail, format!("Expired {}.", stamp(env.expires_at)));
         return result(Verdict::Expired { at: env.expires_at }, Some(&env), Some(checksum), size, None, checks);
     }
@@ -267,6 +267,7 @@ pub fn verify(input: &[u8], ctx: &Context) -> VerificationResult {
             // Say that it failed, never which constraint: detail is for debugging an attack.
             let detail = match e {
                 pof_zk::ZkError::BadSignature | pof_zk::ZkError::BadKey => "the statement was altered after proving, or the signature is not the holder's.",
+                pof_zk::ZkError::DuplicateNote => "the same note is counted more than once.",
                 _ => "the evidence does not prove this statement.",
             };
             set(5, CheckStatus::Fail, format!("Proof does not verify: {detail}"));

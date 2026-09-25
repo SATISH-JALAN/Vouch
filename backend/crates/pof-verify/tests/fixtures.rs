@@ -1,5 +1,5 @@
 //! Every committed vector produces its recorded verdict. The WASM build runs the same list
-//! (frontend `scripts/verify-fixtures.ts`), so the two verifiers cannot drift apart.
+//! (`scripts/verify-fixtures-wasm.mjs`, `pnpm test:wasm`), so the two verifiers cannot drift apart.
 
 use pof_verify::{verify, AnchorRecord, Context, ZkVerifier};
 use serde_json::Value;
@@ -37,5 +37,11 @@ fn every_vector_matches_expected() {
     assert_eq!(serde_json::to_value(&r.verdict).unwrap()["kind"], "Valid");
     let r = verify(&text.as_bytes()[..900], &Context { audience: "x", anchors: &anchors, revoked_secrets: &revoked, now, zk: &zk });
     assert_eq!(serde_json::to_value(&r.verdict).unwrap()["kind"], "Malformed");
+    // expiry is exclusive: at expires_at the proof is already expired, as pof-gate and pof-credit hold
+    let expires = pof_core::decode(&valid).unwrap().0.expires_at;
+    for (now, want) in [(expires - 1, "Valid"), (expires, "Expired")] {
+        let r = verify(&valid, &Context { audience: "pof-credit:usdc-pool-1", anchors: &anchors, revoked_secrets: &revoked, now, zk: &zk });
+        assert_eq!(serde_json::to_value(&r.verdict).unwrap()["kind"], want, "now = expires_at - {}", expires - now);
+    }
     assert!(failures.is_empty(), "{failures:#?}");
 }
