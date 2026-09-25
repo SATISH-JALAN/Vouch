@@ -167,4 +167,6 @@ export interface ServiceStatus {
   attestor: { ok: boolean; pubkey?: string; message?: string }
   demoProver: boolean
   solana: { cluster: string; gate: string; credit: string; pool: string } | null
+  /** Revocations, counters and rate limits are in a shared store, not one instance's temp file. */
+  durable: boolean
 }

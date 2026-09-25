@@ -16,5 +16,3 @@ export const PRESETS: Preset[] = [
   { id: 'forged-claim', label: 'A forged claim', note: '“500 ZEC” edited to “5,000 ZEC” after proving, then re-sealed.', audience: A, file: 'forged-claim.pof' },
   { id: 'readdressed', label: 'A re-addressed proof', note: 'Someone handed a proof edits the audience to themselves. Checked as that someone.', audience: 'otc-desk:someone-else', file: 'readdressed.pof' },
 ]
-
-export const PRESET_BY_ID = Object.fromEntries(PRESETS.map((p) => [p.id, p])) as Record<string, Preset>

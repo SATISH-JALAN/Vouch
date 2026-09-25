@@ -17,22 +17,30 @@ const WASM_JS = '/wasm/pof_wasm.js'
 let mod: Promise<PofWasm> | null = null
 
 export function loadVerifier(): Promise<PofWasm> {
-  mod ??= import(/* webpackIgnore: true */ WASM_JS).then(async (m: PofWasm) => {
-    await m.default()
-    m.warm()
-    return m
-  })
-  mod.catch(() => (mod = null))
+  mod ??= import(/* webpackIgnore: true */ WASM_JS)
+    .then(async (m: PofWasm) => {
+      await m.default()
+      m.warm()
+      return m
+    })
+    .catch((e: unknown) => {
+      mod = null
+      throw e
+    })
   return mod
 }
 
 let anchors: Promise<AnchorRecord[]> | null = null
 export function loadAnchors(): Promise<AnchorRecord[]> {
-  anchors ??= fetch('/api/anchors').then((r) => {
-    if (!r.ok) throw new Error(`anchor table: HTTP ${r.status}`)
-    return r.json() as Promise<AnchorRecord[]>
-  })
-  anchors.catch(() => (anchors = null))
+  anchors ??= fetch('/api/anchors')
+    .then((r) => {
+      if (!r.ok) throw new Error(`anchor table: HTTP ${r.status}`)
+      return r.json() as Promise<AnchorRecord[]>
+    })
+    .catch((e: unknown) => {
+      anchors = null
+      throw e
+    })
   return anchors
 }
 
@@ -51,14 +59,15 @@ export function toBytes(input: string | Uint8Array): Uint8Array {
   return fromBase64Url(input) ?? new TextEncoder().encode(input)
 }
 
-export async function verify(input: string | Uint8Array, audience: string): Promise<VerificationResult> {
+/** `count` adds the verdict to the public /api/stats counter: for checks a person asked for, not the site's own. */
+export async function verify(input: string | Uint8Array, audience: string, { count = false } = {}): Promise<VerificationResult> {
   const [wasm, table, revoked] = await Promise.all([loadVerifier(), loadAnchors(), loadRevocations()])
   const bytes = toBytes(input)
   const now = Math.floor(Date.now() / 1000)
   const t0 = performance.now()
   const raw = JSON.parse(wasm.verify(bytes, audience, BigInt(now), JSON.stringify(table), JSON.stringify(revoked))) as RawResult
   const elapsedMs = performance.now() - t0
-  void recordVerdict(raw.verdict.kind)
+  if (count) void recordVerdict(raw.verdict.kind)
   return {
     ...raw,
     elapsedMs,

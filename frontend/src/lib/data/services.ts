@@ -24,9 +24,16 @@ async function post<T>(path: string, body: unknown, timeout = TIMEOUT_MS): Promi
 
 let statusCache: Promise<ServiceStatus> | null = null
 export function serviceStatus(): Promise<ServiceStatus> {
+  // A failed answer is not cached: the next caller asks again instead of staying SIMULATED.
   statusCache ??= fetch('/api/status', { cache: 'no-store' })
-    .then((r) => r.json() as Promise<ServiceStatus>)
-    .catch(() => ({ attestor: { ok: false, message: 'status route unreachable' }, demoProver: false, solana: null }))
+    .then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      return r.json() as Promise<ServiceStatus>
+    })
+    .catch(() => {
+      statusCache = null
+      return { attestor: { ok: false, message: 'status route unreachable' }, demoProver: false, solana: null, durable: false }
+    })
   return statusCache
 }
 
