@@ -40,8 +40,19 @@
         },
         {
           "name": "admin",
+          "docs": [
+            "Must be the program's upgrade authority: otherwise anyone could create the config first",
+            "and make themselves admin."
+          ],
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "program",
+          "address": "A6WmRTgEAHC9GHstaj9oD8woVNRw9jgu31bpKVREXn8C"
+        },
+        {
+          "name": "program_data"
         },
         {
           "name": "system_program",
@@ -69,7 +80,8 @@
       "name": "mark_consumed",
       "docs": [
         "Called by a consumer program (by CPI) to spend a receipt exactly once. The beneficiary",
-        "must sign, so nobody can burn someone else's receipt, and the consumer is recorded."
+        "must sign, so nobody can burn someone else's receipt. The consumer program must sign too,",
+        "through its `[b\"consumer\"]` PDA, so the program recorded in `consumed_by` is the one that called."
       ],
       "discriminator": [
         251,
@@ -114,9 +126,34 @@
         {
           "name": "consumer",
           "docs": [
-            "The consumer program's authority PDA, signing via invoke_signed. Recorded on the receipt."
+            "`[b\"consumer\"]` under `consumer_program`. Only that program can sign for it (invoke_signed),",
+            "so this signature proves which program is consuming."
           ],
-          "signer": true
+          "signer": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  115,
+                  117,
+                  109,
+                  101,
+                  114
+                ]
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "consumer_program"
+            }
+          }
+        },
+        {
+          "name": "consumer_program"
         }
       ],
       "args": []
@@ -407,6 +444,11 @@
       "code": 6013,
       "name": "SubjectMismatch",
       "msg": "the subject argument does not match the attestation"
+    },
+    {
+      "code": 6014,
+      "name": "NotUpgradeAuthority",
+      "msg": "only the program's upgrade authority can initialize it"
     }
   ],
   "types": [
@@ -496,6 +538,9 @@
           },
           {
             "name": "consumed_by",
+            "docs": [
+              "The consumer program that spent it."
+            ],
             "type": "pubkey"
           },
           {

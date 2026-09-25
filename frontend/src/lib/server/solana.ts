@@ -46,31 +46,39 @@ export const vaultPda = (pool: PublicKey) => pda([Buffer.from('vault'), pool.toB
 /** One line per proof: keyed by the receipt's subject (the proof id) and the borrower. */
 export const linePda = (subject: Uint8Array, borrower: PublicKey) => pda([Buffer.from('line'), subject, borrower.toBuffer()], CREDIT_ID)
 export const consumerPda = () => pda([Buffer.from('consumer')], CREDIT_ID)
+const UPGRADEABLE_LOADER = new PublicKey('BPFLoaderUpgradeab1e11111111111111111111111')
+/** pof-gate's ProgramData, which names its upgrade authority: only that key may initialize. */
+export const gateProgramDataPda = () => pda([GATE_ID.toBuffer()], UPGRADEABLE_LOADER)
 
 // ── pof-gate ──────────────────────────────────────────────────────────────
 
+/** The (attestors, threshold, max_age_slots) arguments shared by initialize and set_attestors. */
+const attestorSet = (name: string, attestors: PublicKey[], threshold: number, maxAgeSlots: number) =>
+  Buffer.concat([disc(gateIdl, name), u32(attestors.length), ...attestors.map((a) => a.toBuffer()), u8(threshold), u64(maxAgeSlots)])
+
+/** `admin` must be pof-gate's upgrade authority (the deployer). */
 export function initializeIx(admin: PublicKey, attestors: PublicKey[], threshold: number, maxAgeSlots: number) {
-  const data = Buffer.concat([disc(gateIdl, 'initialize'), u32(attestors.length), ...attestors.map((a) => a.toBuffer()), u8(threshold), u64(maxAgeSlots)])
   return new TransactionInstruction({
     programId: GATE_ID,
     keys: [
       { pubkey: configPda(), isSigner: false, isWritable: true },
       { pubkey: admin, isSigner: true, isWritable: true },
+      { pubkey: GATE_ID, isSigner: false, isWritable: false },
+      { pubkey: gateProgramDataPda(), isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
-    data,
+    data: attestorSet('initialize', attestors, threshold, maxAgeSlots),
   })
 }
 
 export function setAttestorsIx(admin: PublicKey, attestors: PublicKey[], threshold: number, maxAgeSlots: number) {
-  const data = Buffer.concat([disc(gateIdl, 'set_attestors'), u32(attestors.length), ...attestors.map((a) => a.toBuffer()), u8(threshold), u64(maxAgeSlots)])
   return new TransactionInstruction({
     programId: GATE_ID,
     keys: [
       { pubkey: configPda(), isSigner: false, isWritable: true },
       { pubkey: admin, isSigner: true, isWritable: false },
     ],
-    data,
+    data: attestorSet('set_attestors', attestors, threshold, maxAgeSlots),
   })
 }
 
@@ -107,15 +115,18 @@ export function initPoolIx(authority: PublicKey, mint: PublicKey, audience: Uint
   })
 }
 
-export function openLineIx(pool: PublicKey, borrower: PublicKey, receipt: PublicKey, subject: Uint8Array) {
+/** `payer` funds the CreditLine's rent; the borrower only signs. */
+export function openLineIx(pool: PublicKey, borrower: PublicKey, payer: PublicKey, receipt: PublicKey, subject: Uint8Array) {
   return new TransactionInstruction({
     programId: CREDIT_ID,
     keys: [
       { pubkey: pool, isSigner: false, isWritable: false },
       { pubkey: receipt, isSigner: false, isWritable: true },
       { pubkey: linePda(subject, borrower), isSigner: false, isWritable: true },
-      { pubkey: borrower, isSigner: true, isWritable: true },
+      { pubkey: borrower, isSigner: true, isWritable: false },
+      { pubkey: payer, isSigner: true, isWritable: true },
       { pubkey: consumerPda(), isSigner: false, isWritable: false },
+      { pubkey: CREDIT_ID, isSigner: false, isWritable: false },
       { pubkey: GATE_ID, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
@@ -147,24 +158,6 @@ export function decodePool(data: Buffer): PoolAccount {
   const requiredZatoshi = data.readBigUInt64LE(o)
   const lineLimit = data.readBigUInt64LE(o + 8)
   return { authority, mint, vault, audience, requiredZatoshi, lineLimit }
-}
-
-export interface LineAccount {
-  pool: PublicKey
-  borrower: PublicKey
-  limit: bigint
-  drawn: bigint
-  openedAgainst: Buffer
-}
-
-export function decodeLine(data: Buffer): LineAccount {
-  let o = 8
-  const pool = new PublicKey(data.subarray(o, (o += 32)))
-  const borrower = new PublicKey(data.subarray(o, (o += 32)))
-  const limit = data.readBigUInt64LE(o)
-  const drawn = data.readBigUInt64LE(o + 8)
-  const openedAgainst = data.subarray(o + 16, o + 48)
-  return { pool, borrower, limit, drawn, openedAgainst }
 }
 
 // ── keys and connection ───────────────────────────────────────────────────

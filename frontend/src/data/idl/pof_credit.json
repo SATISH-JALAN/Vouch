@@ -134,7 +134,10 @@
           }
         },
         {
-          "name": "mint"
+          "name": "mint",
+          "docs": [
+            "The pool's creator must control the mint: nobody can open a pool under someone else's asset."
+          ]
         },
         {
           "name": "vault",
@@ -258,6 +261,13 @@
         },
         {
           "name": "borrower",
+          "signer": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the line's rent, so a borrower needs no SOL (in the demo, the relayer)."
+          ],
           "writable": true,
           "signer": true
         },
@@ -280,6 +290,13 @@
               }
             ]
           }
+        },
+        {
+          "name": "consumer_program",
+          "docs": [
+            "This program, named to pof-gate as the consumer."
+          ],
+          "address": "J6ewFZAzcTkbVsYNBrcZvzdBtTTUK5UrpqCg9jiNyra1"
         },
         {
           "name": "gate_program",
@@ -444,6 +461,9 @@
           },
           {
             "name": "consumed_by",
+            "docs": [
+              "The consumer program that spent it."
+            ],
             "type": "pubkey"
           },
           {
@@ -572,10 +592,6 @@
           },
           {
             "name": "bump",
-            "type": "u8"
-          },
-          {
-            "name": "vault_bump",
             "type": "u8"
           }
         ]
