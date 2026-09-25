@@ -2244,11 +2244,10 @@ dependencies = [
  "solana-clock",
  "solana-instruction",
  "solana-keypair",
- "solana-message",
+ "solana-program-runtime",
  "solana-sdk-ids",
  "solana-signer",
  "solana-transaction",
- "spl-token-interface 3.0.0",
 ]
 
 [[package]]
