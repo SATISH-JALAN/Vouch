@@ -19,5 +19,5 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
   const { slug } = await params
   const doc = getDoc(slug.join('/'))
   if (!doc) notFound()
-  return <DocView doc={doc} />
+  return <DocView doc={doc} docs={DOCS.map(({ slug, title }) => ({ slug, title }))} />
 }

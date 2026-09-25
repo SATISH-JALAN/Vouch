@@ -3,13 +3,13 @@
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import type { Doc } from '@/lib/docs'
-import { DOCS } from '@/lib/docs'
 import { scrollToTarget } from '@/lib/lenis'
 import { useLineReveal } from '@/components/motion/hooks'
 import { cx, Eyebrow, Rule } from '@/components/ui/primitives'
 
-/** Specimen layout: a wide prose column, a sticky contents rail on the right. */
-export function DocView({ doc }: { doc: Doc }) {
+/** Specimen layout: a wide prose column, a sticky contents rail on the right. `docs` is the index, passed in so
+ * the client bundle does not carry every other document's body. */
+export function DocView({ doc, docs }: { doc: Doc; docs: { slug: string; title: string }[] }) {
   const title = useRef<HTMLHeadingElement>(null)
   const [active, setActive] = useState(doc.sections[0]?.id)
   useLineReveal(title, 'top 95%')
@@ -73,7 +73,7 @@ export function DocView({ doc }: { doc: Doc }) {
             </ol>
             <p className="t-eyebrow mt-10 text-ink-3">DOCUMENTS</p>
             <ul className="t-data mt-4 space-y-2">
-              {DOCS.map((d) => (
+              {docs.map((d) => (
                 <li key={d.slug}>
                   <Link href={`/docs/${d.slug}`} className={cx('link-draw', d.slug === doc.slug ? 'text-ink' : 'text-ink-3 hover:text-ink')} aria-current={d.slug === doc.slug ? 'page' : undefined}>
                     {d.title}

@@ -204,6 +204,11 @@ signature  = RedPallas SpendAuth over message, under rk`}</Code>
             <li>— the notes together hold at least <C>min_ballots</C> × 0.125 ZEC. The sum itself is committed, never revealed.</li>
           </ul>
           <p>
+            The circuit checks each note slot on its own, so it would accept one note placed in several slots and count it more than once.
+            Upstream, the vote chain refuses a repeated governance nullifier; Vouch has no chain, so the verifier refuses any proof whose five{' '}
+            <C>gov_null</C> values are not all distinct. A repeated note always produces the same one.
+          </p>
+          <p>
             Carried public inputs, in order: <C>nf_signed, rk, cmx_new, van_comm, gov_null_1..5</C>. Derived by the verifier: <C>vote_round_id</C>,{' '}
             <C>dom</C>, <C>nc_root</C>, <C>nf_imt_root</C>, <C>min_ballots</C>. The governance nullifiers are domain-separated per statement and
             unlinkable to the real nullifiers.
@@ -225,7 +230,7 @@ signature  = RedPallas SpendAuth over message, under rk`}</Code>
               ['3', 'No published secret hashes to the revocation tag', <C key="3">Revoked</C>],
               ['4', 'blake2b(identifier) equals audience', <C key="4">WrongAudience</C>],
               ['5', 'Both roots equal an authenticated anchor at that height', <C key="5">AnchorNotFound</C>],
-              ['6', 'Signature under rk, then the Halo2 proof against the 15 public inputs', <C key="6">ProofInvalid</C>],
+              ['6', 'Distinct governance nullifiers, the signature under rk, then the Halo2 proof against the 15 public inputs', <C key="6">ProofInvalid</C>],
             ]}
           />
           <Code>{`pub enum Verdict {
@@ -315,7 +320,7 @@ curl -s ${'$'}SITE/api/revocations > revocations.json
 pof-verify check proof.pof --audience ${DEMO_AUDIENCE.id} \\
            --anchors anchors.json --revocations revocations.json
 # Valid · 500.00000000 ZEC at least · anchor 3491040
-echo $?   # 0 valid · 1 invalid · 2 expired · 3 malformed`}</Code>
+echo $?   # 0 valid · 1 invalid · 2 expired · 3 malformed · 4 could not run`}</Code>
         </>
       ),
     },
@@ -362,7 +367,10 @@ ix 1  pof-gate::submit_attestation(subject, message)
         5. create ClaimReceipt PDA [b"receipt", subject]   ← one proof, one receipt`}</Code>
           <p>
             A consumer reads the receipt, checks the audience, the claim value, the expiry and that the signer is the <strong>beneficiary</strong>,
-            then calls <C>mark_consumed</C> by CPI. <C>pof-credit</C> does exactly that.
+            then calls <C>mark_consumed</C> by CPI, signed by the beneficiary and by the consumer program’s own <C>[b"consumer"]</C> PDA.{' '}
+            <C>pof-gate</C> derives that PDA from the program passed as <C>consumer_program</C>, so a plain key cannot pose as a consumer, and
+            records the program id in <C>consumed_by</C>. <C>pof-credit</C> does exactly that; in the demo the relayer pays the credit line’s rent,
+            so the borrower needs no SOL.
           </p>
           <Table
             head={['Program', 'Id']}
@@ -408,9 +416,12 @@ git clone ${REPO} && cd Vouch/backend && cargo build --release -p pof-prove`}</C
             wallet finds its notes in. Build it yourself from any lightwalletd:
           </p>
           <Code>{`cargo install --git ${REPO} pof-anchor --locked
-pof-anchor scan --server https://zec.rocks:443 --to ${mainnet?.height ?? 3493000} --out snapshots/
+pof-anchor scan --server https://zec.rocks:443 --to ${mainnet?.height ?? 3493000}
 # ✓ nc_root matches lightwalletd's Ironwood tree state at ${mainnet?.height ?? 3493000}`}</Code>
-          <p>The anchor it prints must match the one published in the table, or verifiers will answer AnchorNotFound.</p>
+          <p>
+            It writes <C>target/snapshots/mainnet-&lt;height&gt;.vsnp</C>, the path the command on <C>/prove</C> expects. The anchor it prints must
+            match the one published in the table, or verifiers will answer AnchorNotFound.
+          </p>
         </>
       ),
     },
@@ -423,7 +434,7 @@ pof-anchor scan --server https://zec.rocks:443 --to ${mainnet?.height ?? 3493000
             Open the request link at <C>/prove</C> to read what the verifier will and will not learn. Then run the command it shows. The prover
             prints the same sentence and asks before it does anything.
           </p>
-          <Code>{`pof-prove prove --request <encoded> --snapshot snapshots/mainnet-${mainnet?.height ?? 3493000}.vsnp \\
+          <Code>{`pof-prove prove --request <encoded> --snapshot target/snapshots/mainnet-${mainnet?.height ?? 3493000}.vsnp \\
                 --seed-file ~/.vouch/seed.txt --out proof.pof
 
   ✓ account 0 on mainnet
@@ -517,8 +528,9 @@ curl localhost:8787/v1/pubkey   # your key, the verifier build, the key fingerpr
       body: (
         <p>
           <C>pof-gate</C> keeps up to eight attestor keys and a threshold. With threshold 2, a receipt needs two distinct allowlisted attestors to
-          have signed the identical message: one compromised attestor can no longer forge anything. The admin sets both with{' '}
-          <C>set_attestors</C>; the setup script is <C>frontend/scripts/solana-setup.ts</C>.
+          have signed the identical message: one compromised attestor can no longer forge anything. The first <C>initialize</C> must be
+          signed by <C>pof-gate</C>’s upgrade authority, so nobody can claim the config before the deployer; after that the admin sets both
+          with <C>set_attestors</C>. The setup script is <C>frontend/scripts/solana-setup.ts</C>.
         </p>
       ),
     },
