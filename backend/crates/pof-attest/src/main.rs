@@ -13,8 +13,8 @@
 //!   POST /v1/demo/prove   {request, bindSolana?} → {proof, revocationSecret, …}   (feature demo-prover)
 //!   GET  /health
 //!
-//! Environment: POF_ATTEST_KEY (hex Ed25519 seed; generated and printed if unset),
-//! POF_ANCHORS (anchor table JSON), POF_REVOCATIONS_URL (the site's /api/revocations),
+//! Environment: POF_ATTEST_KEY (hex Ed25519 seed; an ephemeral key is used if unset),
+//! POF_ANCHORS (anchor table JSON, required), POF_REVOCATIONS_URL (the site's /api/revocations),
 //! POF_REVOCATIONS_FILE (static list), POF_AUDIENCE (default pof-credit:usdc-pool-1),
 //! SOLANA_RPC_URL (for the freshness slot), POF_DEMO_WORLD (enables the demo holder), PORT.
 
@@ -24,14 +24,14 @@ use std::{
 };
 
 use axum::{
-    extract::{Path, State},
+    extract::{DefaultBodyLimit, Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
 use ed25519_dalek::{Signer, SigningKey};
-use pof_core::{decode, subject_hash, Claim, Envelope};
+use pof_core::{subject_hash, Envelope};
 use pof_verify::{verify, AnchorRecord, Context, Verdict, ZkVerifier};
 use serde::Deserialize;
 use serde_json::json;
@@ -39,6 +39,9 @@ use tokio::sync::{Mutex, Semaphore};
 
 pub const DOMAIN: &[u8; 13] = b"POF-ATTEST-v1";
 pub const MESSAGE_LEN: usize = 139;
+/// A .pof is at most ~17 KiB, ~23 KiB as base64url: nothing legitimate is larger.
+const BODY_LIMIT: usize = 64 * 1024;
+const REVOCATIONS_TTL: Duration = Duration::from_secs(10);
 
 struct App {
     key: SigningKey,
@@ -47,12 +50,14 @@ struct App {
     audience: String,
     revocations_url: Option<String>,
     static_revocations: Vec<String>,
-    revocation_cache: Mutex<(Instant, Vec<String>)>,
+    /// When the URL list was last fetched (successfully or not), and the last list read.
+    revocation_cache: Mutex<(Option<Instant>, Vec<String>)>,
     rpc: Option<String>,
     http: reqwest::Client,
+    /// Halo2 verification is CPU-bound: at most one per core at a time.
+    verifiers: Semaphore,
     #[cfg(feature = "demo-prover")]
     demo: Option<demo::Demo>,
-    provers: Semaphore,
 }
 
 fn now() -> u64 {
@@ -81,37 +86,55 @@ impl App {
     async fn revoked(&self) -> Vec<String> {
         let mut out = self.static_revocations.clone();
         let Some(url) = &self.revocations_url else { return out };
+        // Held across the fetch so concurrent requests share one fetch. A failure stamps the time
+        // too, so an unreachable list costs at most one timeout per TTL, not one per request.
         let mut cache = self.revocation_cache.lock().await;
-        if cache.0.elapsed() > Duration::from_secs(10) || cache.1.is_empty() {
-            #[derive(Deserialize)]
-            struct List {
-                secrets: Vec<String>,
-            }
-            match self.http.get(url).timeout(Duration::from_secs(4)).send().await {
-                Ok(r) => match r.json::<List>().await {
-                    Ok(l) => *cache = (Instant::now(), l.secrets),
-                    Err(e) => tracing::warn!("revocation list unreadable: {e}"),
-                },
-                // Fail closed would stop the demo on a network blip; fail open is logged. The
-                // on-chain consumer can re-check revocation before acting.
-                Err(e) => tracing::warn!("revocation list unreachable: {e}"),
+        if cache.0.is_none_or(|t| t.elapsed() > REVOCATIONS_TTL) {
+            cache.0 = Some(Instant::now());
+            match self.fetch_revocations(url).await {
+                Ok(secrets) => cache.1 = secrets,
+                // Fail closed would stop the demo on a network blip; fail open keeps the last list
+                // read and is logged. The on-chain consumer can re-check revocation before acting.
+                Err(e) => tracing::warn!("revocation list unavailable, keeping the last one read: {e}"),
             }
         }
         out.extend(cache.1.iter().cloned());
         out
     }
 
-    async fn slot(&self) -> anyhow::Result<u64> {
-        let Some(rpc) = &self.rpc else { return Ok(0) };
-        let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "getSlot", "params": [{ "commitment": "confirmed" }] });
-        let r: serde_json::Value = self.http.post(rpc).json(&body).timeout(Duration::from_secs(5)).send().await?.json().await?;
-        r["result"].as_u64().ok_or_else(|| anyhow::anyhow!("getSlot: {r}"))
+    async fn fetch_revocations(&self, url: &str) -> reqwest::Result<Vec<String>> {
+        #[derive(Deserialize)]
+        struct List {
+            secrets: Vec<String>,
+        }
+        let r = self.http.get(url).timeout(Duration::from_secs(4)).send().await?.error_for_status()?;
+        Ok(r.json::<List>().await?.secrets)
     }
 
-    async fn check(&self, proof: &str, audience: Option<&str>) -> pof_verify::VerificationResult {
+    /// The current confirmed slot, for pof-gate's freshness check. Errors are logged in full but
+    /// answered without detail: the RPC URL may carry an API key.
+    async fn slot(&self) -> Result<u64, Refusal> {
+        let Some(rpc) = &self.rpc else {
+            return Err(Refusal(StatusCode::SERVICE_UNAVAILABLE, "this attestor has no SOLANA_RPC_URL, so it cannot sign a fresh attestation"));
+        };
+        let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "getSlot", "params": [{ "commitment": "confirmed" }] });
+        let fetched: anyhow::Result<u64> = async {
+            let r: serde_json::Value = self.http.post(rpc).json(&body).timeout(Duration::from_secs(5)).send().await?.error_for_status()?.json().await?;
+            r["result"].as_u64().ok_or_else(|| anyhow::anyhow!("getSlot returned no slot: {r}"))
+        }
+        .await;
+        fetched.map_err(|e| {
+            tracing::warn!("could not read the Solana slot: {e:#}");
+            Refusal(StatusCode::BAD_GATEWAY, "could not read the Solana slot")
+        })
+    }
+
+    async fn check(&self, proof: &str, audience: Option<&str>) -> Result<pof_verify::VerificationResult, Refusal> {
         let revoked = self.revoked().await;
-        let aud = audience.unwrap_or(&self.audience).to_string();
-        verify(proof.as_bytes(), &Context { audience: &aud, anchors: &self.anchors, revoked_secrets: &revoked, now: now(), zk: &self.zk })
+        let _permit = tokio::time::timeout(Duration::from_secs(5), self.verifiers.acquire()).await.map_err(|_| BUSY)?.map_err(|_| BUSY)?;
+        let ctx = Context { audience: audience.unwrap_or(&self.audience), anchors: &self.anchors, revoked_secrets: &revoked, now: now(), zk: &self.zk };
+        // CPU-bound: keep it off the async workers so /health and the rest stay responsive.
+        Ok(tokio::task::block_in_place(|| verify(proof.as_bytes(), &ctx)))
     }
 }
 
@@ -121,22 +144,32 @@ struct ProofBody {
     audience: Option<String>,
 }
 
+/// A refusal with a fixed message: small to return, turned into a response at the edge.
+struct Refusal(StatusCode, &'static str);
+
+const BUSY: Refusal = Refusal(StatusCode::TOO_MANY_REQUESTS, "the attestor is busy; try again in a few seconds");
+
+impl IntoResponse for Refusal {
+    fn into_response(self) -> Response {
+        err(self.0, self.1)
+    }
+}
+
 fn err(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, Json(json!({ "error": msg.into() }))).into_response()
 }
 
 async fn attest(State(app): State<Arc<App>>, Json(b): Json<ProofBody>) -> Response {
     let started = Instant::now();
-    let r = app.check(&b.proof, b.audience.as_deref()).await;
-    if !matches!(r.verdict, Verdict::Valid { .. }) {
+    let r = match app.check(&b.proof, b.audience.as_deref()).await {
+        Ok(r) => r,
+        Err(busy) => return busy.into_response(),
+    };
+    let (Verdict::Valid { .. }, Some(view)) = (&r.verdict, r.envelope) else {
         tracing::info!(verdict = ?r.verdict, ms = started.elapsed().as_millis() as u64, "refused");
         return (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "verdict": r.verdict }))).into_response();
-    }
-    let bytes = match pof_verify::to_bytes(b.proof.as_bytes()) {
-        Ok(b) => b,
-        Err(e) => return err(StatusCode::BAD_REQUEST, e.to_string()),
     };
-    let Ok((env, _)) = decode(&bytes) else { return err(StatusCode::BAD_REQUEST, "proof does not decode") };
+    let env = view.envelope;
     if env.binding == [0; 32] {
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -146,19 +179,18 @@ async fn attest(State(app): State<Arc<App>>, Json(b): Json<ProofBody>) -> Respon
     }
     let slot = match app.slot().await {
         Ok(s) => s,
-        Err(e) => return err(StatusCode::BAD_GATEWAY, format!("could not read the Solana slot: {e}")),
+        Err(e) => return e.into_response(),
     };
     let msg = attestation_message(&env, slot);
     let sig = app.key.sign(&msg);
     tracing::info!(slot, ms = started.elapsed().as_millis() as u64, "signed");
-    let Claim::HoldsAtLeast { zatoshi } = env.claim else { return err(StatusCode::UNPROCESSABLE_ENTITY, "unsupported claim") };
     Json(json!({
         "attestation": {
             "domain": "POF-ATTEST-v1",
             "subject": hex::encode(subject_hash(&env)),
             "beneficiary": bs58::encode(env.binding).into_string(),
-            "claimKind": 0,
-            "claimValue": zatoshi,
+            "claimKind": env.claim.tag(),
+            "claimValue": env.claim.zatoshi(),
             "anchorHeight": env.anchor.height,
             "expiresAt": env.expires_at,
             "verdict": 0,
@@ -172,7 +204,10 @@ async fn attest(State(app): State<Arc<App>>, Json(b): Json<ProofBody>) -> Respon
 }
 
 async fn verify_only(State(app): State<Arc<App>>, Json(b): Json<ProofBody>) -> Response {
-    Json(app.check(&b.proof, b.audience.as_deref()).await).into_response()
+    match app.check(&b.proof, b.audience.as_deref()).await {
+        Ok(r) => Json(r).into_response(),
+        Err(busy) => busy.into_response(),
+    }
 }
 
 async fn pubkey(State(app): State<Arc<App>>) -> Response {
@@ -206,6 +241,8 @@ mod demo {
     pub struct Demo {
         pub world: DemoWorld,
         pub snap: Snapshot,
+        /// Proving takes seconds of CPU: at most two at a time, the rest are told to retry.
+        pub provers: Semaphore,
     }
 
     #[derive(Deserialize)]
@@ -228,7 +265,7 @@ mod demo {
             (Some(_), None) => return err(StatusCode::BAD_REQUEST, "this request must be bound to a Solana account: send bindSolana"),
             (None, None) => [0u8; 32],
         };
-        let Ok(_permit) = app.provers.try_acquire() else { return err(StatusCode::TOO_MANY_REQUESTS, "the demo holder is busy; try again in a few seconds") };
+        let Ok(_permit) = demo.provers.try_acquire() else { return err(StatusCode::TOO_MANY_REQUESTS, "the demo holder is busy; try again in a few seconds") };
         let mut secret = [0u8; 32];
         getrandom::getrandom(&mut secret).expect("OS randomness");
         let mut env = envelope_for(&b.request, demo.snap.anchor(), now(), binding, &secret);
@@ -268,11 +305,12 @@ fn load_key() -> SigningKey {
             SigningKey::from_bytes(&b)
         }
         Err(_) => {
+            // The seed is never printed: logs are retained. Make a lasting key with
+            // `openssl rand -hex 32` and pass it as POF_ATTEST_KEY.
+            tracing::warn!("POF_ATTEST_KEY unset: signing with an ephemeral key that changes on every restart");
             let mut seed = [0u8; 32];
             getrandom::getrandom(&mut seed).expect("OS randomness");
-            let k = SigningKey::from_bytes(&seed);
-            eprintln!("POF_ATTEST_KEY unset: generated an ephemeral key. Set POF_ATTEST_KEY={} to keep it.", hex::encode(seed));
-            k
+            SigningKey::from_bytes(&seed)
         }
     }
 }
@@ -280,12 +318,19 @@ fn load_key() -> SigningKey {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
-    let anchors_path = std::env::var("POF_ANCHORS").unwrap_or_else(|_| "fixtures/anchors.json".into());
+    let anchors_path = std::env::var("POF_ANCHORS").map_err(|_| anyhow::anyhow!("set POF_ANCHORS to the anchor table to trust (e.g. frontend/src/data/anchors.json)"))?;
     let anchors: Vec<AnchorRecord> = serde_json::from_slice(&std::fs::read(&anchors_path).map_err(|e| anyhow::anyhow!("{anchors_path}: {e}"))?)?;
+    if anchors.iter().any(|a| a.network == "demo") {
+        tracing::warn!("the anchor table includes the demo ledger: this key signs demo proofs, so only demo deployments may trust it");
+    }
     let static_revocations = match std::env::var("POF_REVOCATIONS_FILE") {
         Ok(p) => {
-            let v: serde_json::Value = serde_json::from_slice(&std::fs::read(p)?)?;
-            v["secrets"].as_array().map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect()).unwrap_or_default()
+            #[derive(Deserialize)]
+            struct List {
+                secrets: Vec<String>,
+            }
+            let bytes = std::fs::read(&p).map_err(|e| anyhow::anyhow!("{p}: {e}"))?;
+            serde_json::from_slice::<List>(&bytes).map_err(|e| anyhow::anyhow!("{p}: {e}"))?.secrets
         }
         Err(_) => vec![],
     };
@@ -295,7 +340,7 @@ async fn main() -> anyhow::Result<()> {
             let world: pof_prove::world::DemoWorld = serde_json::from_slice(&std::fs::read(&p)?)?;
             let snap = world.snapshot()?;
             tracing::info!(leaves = snap.tree.size(), "demo holder enabled");
-            Some(demo::Demo { world, snap })
+            Some(demo::Demo { world, snap, provers: Semaphore::new(2) })
         }
         Err(_) => None,
     };
@@ -306,13 +351,16 @@ async fn main() -> anyhow::Result<()> {
         audience: std::env::var("POF_AUDIENCE").unwrap_or_else(|_| "pof-credit:usdc-pool-1".into()),
         revocations_url: std::env::var("POF_REVOCATIONS_URL").ok(),
         static_revocations,
-        revocation_cache: Mutex::new((Instant::now(), vec![])),
+        revocation_cache: Mutex::new((None, vec![])),
         rpc: std::env::var("SOLANA_RPC_URL").ok(),
         http: reqwest::Client::new(),
+        verifiers: Semaphore::new(std::thread::available_parallelism().map_or(2, |n| n.get())),
         #[cfg(feature = "demo-prover")]
         demo,
-        provers: Semaphore::new(2),
     });
+    if app.rpc.is_none() {
+        tracing::warn!("SOLANA_RPC_URL unset: /v1/attest will refuse to sign (it has no slot for freshness)");
+    }
     tracing::info!(pubkey = %bs58::encode(app.key.verifying_key().to_bytes()).into_string(), anchors = app.anchors.len(), "pof-attest ready");
 
     let router = Router::new()
@@ -323,18 +371,34 @@ async fn main() -> anyhow::Result<()> {
         .route("/v1/verify", post(verify_only));
     #[cfg(feature = "demo-prover")]
     let router = router.route("/v1/demo/prove", post(demo::prove));
-    let router = router.with_state(app);
+    let router = router.layer(DefaultBodyLimit::max(BODY_LIMIT)).with_state(app);
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "8787".into());
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
     tracing::info!("listening on :{port}");
-    axum::serve(listener, router).with_graceful_shutdown(async { let _ = tokio::signal::ctrl_c().await; }).await?;
+    axum::serve(listener, router).with_graceful_shutdown(shutdown()).await?;
     Ok(())
+}
+
+/// Ctrl-C, or SIGTERM from `docker stop` and the platform (the binary is PID 1 in the image).
+async fn shutdown() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut term = signal(SignalKind::terminate()).expect("installing the SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = term.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = tokio::signal::ctrl_c().await;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pof_core::decode;
 
     #[test]
     fn message_layout_is_139_bytes_and_domain_separated() {
