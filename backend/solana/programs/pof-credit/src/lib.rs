@@ -32,7 +32,6 @@ pub mod pof_credit {
         p.required_zatoshi = required_zatoshi;
         p.line_limit = line_limit;
         p.bump = ctx.bumps.pool;
-        p.vault_bump = ctx.bumps.vault;
         Ok(())
     }
 
@@ -40,11 +39,12 @@ pub mod pof_credit {
         let r = &ctx.accounts.receipt;
         let pool = &ctx.accounts.pool;
         let borrower = ctx.accounts.borrower.key();
+        let clock = Clock::get()?;
         require!(r.audience == pool.audience, CreditError::WrongAudience);
         require!(r.claim_value >= pool.required_zatoshi, CreditError::BelowThreshold);
         require_keys_eq!(r.beneficiary, borrower, CreditError::NotBoundToSigner);
         require!(!r.consumed, CreditError::ReceiptConsumed);
-        require!(r.expires_at > Clock::get()?.unix_timestamp, CreditError::ProofExpired);
+        require!(r.expires_at > clock.unix_timestamp, CreditError::ProofExpired);
 
         let bump = ctx.bumps.consumer;
         let seeds: &[&[u8]] = &[b"consumer", &[bump]];
@@ -54,6 +54,7 @@ pub mod pof_credit {
                 receipt: ctx.accounts.receipt.to_account_info(),
                 beneficiary: ctx.accounts.borrower.to_account_info(),
                 consumer: ctx.accounts.consumer.to_account_info(),
+                consumer_program: ctx.accounts.consumer_program.to_account_info(),
             },
             &[seeds],
         ))?;
@@ -65,7 +66,7 @@ pub mod pof_credit {
         line.drawn = 0;
         line.opened_against = ctx.accounts.receipt.subject;
         line.anchor_height = ctx.accounts.receipt.anchor_height;
-        line.opened_slot = Clock::get()?.slot;
+        line.opened_slot = clock.slot;
         line.bump = ctx.bumps.line;
         emit!(LineOpened { line: line.key(), borrower, limit: line.limit, against: line.opened_against });
         Ok(())
@@ -103,7 +104,6 @@ pub struct Pool {
     /// Per-line limit, in the mint's base units.
     pub line_limit: u64,
     pub bump: u8,
-    pub vault_bump: u8,
 }
 
 #[account]
@@ -124,6 +124,8 @@ pub struct CreditLine {
 pub struct InitPool<'info> {
     #[account(init, payer = authority, space = 8 + Pool::INIT_SPACE, seeds = [b"pool", mint.key().as_ref()], bump)]
     pub pool: Account<'info, Pool>,
+    /// The pool's creator must control the mint: nobody can open a pool under someone else's asset.
+    #[account(mint::authority = authority)]
     pub mint: Account<'info, Mint>,
     #[account(init, payer = authority, token::mint = mint, token::authority = pool, seeds = [b"vault", pool.key().as_ref()], bump)]
     pub vault: Account<'info, TokenAccount>,
@@ -139,13 +141,17 @@ pub struct OpenLine<'info> {
     pub pool: Account<'info, Pool>,
     #[account(mut)]
     pub receipt: Account<'info, ClaimReceipt>,
-    #[account(init, payer = borrower, space = 8 + CreditLine::INIT_SPACE, seeds = [b"line", receipt.subject.as_ref(), borrower.key().as_ref()], bump)]
+    #[account(init, payer = payer, space = 8 + CreditLine::INIT_SPACE, seeds = [b"line", receipt.subject.as_ref(), borrower.key().as_ref()], bump)]
     pub line: Account<'info, CreditLine>,
-    #[account(mut)]
     pub borrower: Signer<'info>,
+    /// Pays the line's rent, so a borrower needs no SOL (in the demo, the relayer).
+    #[account(mut)]
+    pub payer: Signer<'info>,
     /// CHECK: this program's consumer authority PDA; it signs the CPI into pof-gate.
     #[account(seeds = [b"consumer"], bump)]
     pub consumer: UncheckedAccount<'info>,
+    /// This program, named to pof-gate as the consumer.
+    pub consumer_program: Program<'info, program::PofCredit>,
     pub gate_program: Program<'info, PofGate>,
     pub system_program: Program<'info, System>,
 }
