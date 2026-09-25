@@ -9,7 +9,6 @@ out
 /dist/
 /build/
 target
-**/target
 .turbo
 *.tsbuildinfo
 next-env.d.ts
@@ -47,6 +46,9 @@ Thumbs.db
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+# pof-anchor snapshots: tens of MB, rebuilt from lightwalletd
+*.vsnp
 
 # devnet demo keypairs: never commit key material
 backend/solana/keys/
