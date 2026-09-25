@@ -1,5 +1,10 @@
-//! Invariant: the prover cannot broadcast. It links no network client and no transaction
-//! sender, and no source file names one. If this test fails, someone wired up a send path.
+//! Invariant: the prover cannot broadcast. The library links no network client and no
+//! transaction sender, and no source file names one. If this test fails, someone wired up a
+//! send path.
+//!
+//! The dependency check covers the library build (`--no-default-features`). The `cli`
+//! feature adds `ureq` for exactly one call: `pof-prove revoke` posting a revocation secret
+//! to the endpoint the holder names. Nothing else in the CLI touches the network.
 
 use std::process::Command;
 
@@ -12,7 +17,7 @@ fn prover_links_no_network_client() {
         .expect("cargo tree");
     let tree = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    for banned in ["zakura-client-backend", "tonic ", "hyper ", "reqwest", "zcash_client_sqlite", "zakura-client-sqlite"] {
+    for banned in ["zakura-client-backend", "tonic ", "hyper", "reqwest", "ureq", "zcash_client_sqlite", "zakura-client-sqlite"] {
         assert!(!tree.contains(banned), "the prover library links {banned}");
     }
 }

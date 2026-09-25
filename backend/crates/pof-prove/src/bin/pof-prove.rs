@@ -1,6 +1,6 @@
 //! pof-prove — the holder's CLI. Keys stay in this process; nothing is broadcast.
 //!
-//!   pof-prove prove          --request <encoded> --snapshot mainnet-3500000.vsnp --seed-file ~/.vouch/seed.txt --out proof.pof
+//!   pof-prove prove          --request <encoded> --snapshot target/snapshots/mainnet-3500000.vsnp --seed-file ~/.vouch/seed.txt --out proof.pof
 //!   pof-prove demo init      --out fixtures/
 //!   pof-prove demo prove     --world fixtures/demo-world.json --request <encoded> --out proof.pof
 //!   pof-prove demo fixtures  --world fixtures/demo-world.json --out fixtures/
@@ -15,11 +15,11 @@ use std::{
 use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
-use pof_core::{audience_hash, encode, revocation_tag, to_base64url, Claim, Envelope};
-use pof_prove::{envelope_for, history::Entry, history::History, prove, request::zec, world::DemoWorld, ProofRequest, Snapshot};
+use pof_core::{audience_hash, encode, to_base64url, Claim, Envelope};
+use pof_prove::{envelope_for, history::Entry, history::History, prove, request::zec, select_notes, wallet, world::DemoWorld, ProofRequest};
 use voting_circuits::ff::{Field, PrimeField};
 use voting_circuits::rand::rngs::OsRng;
-use voting_crypto_deps::orchard::keys::SpendingKey;
+use voting_crypto_deps::orchard::keys::FullViewingKey;
 use voting_crypto_deps::pasta_curves::pallas;
 
 #[derive(Parser)]
@@ -64,8 +64,10 @@ enum Cmd {
     },
     /// Revoke a proof by publishing its revocation secret.
     Revoke {
+        /// The proof id from `history`: at least its first 8 hex characters.
         id: String,
-        #[arg(long, default_value = "http://localhost:3000/api/revocations")]
+        /// The revocation list your verifiers check, e.g. https://<site>/api/revocations.
+        #[arg(long, value_name = "URL")]
         endpoint: String,
     },
 }
@@ -133,9 +135,20 @@ fn done(pb: ProgressBar, msg: String) {
     pb.finish_with_message(format!("✓ {msg}"));
 }
 
+fn plural(n: usize, one: &str) -> String {
+    format!("{n} {one}{}", if n == 1 { "" } else { "s" })
+}
+
+/// The `r` parameter of a request link, or the input itself when it is the bare encoded request.
+fn request_param(s: &str) -> &str {
+    let s = s.trim();
+    let query = s.split_once('?').map_or(s, |(_, q)| q);
+    let query = query.split('#').next().unwrap_or(query);
+    query.split('&').find_map(|kv| kv.strip_prefix("r=")).unwrap_or(s)
+}
+
 fn parse_request(s: &str) -> anyhow::Result<ProofRequest> {
-    let enc = s.split("r=").last().unwrap_or(s).split('&').next().unwrap_or(s).trim();
-    Ok(ProofRequest::decode(enc)?)
+    Ok(ProofRequest::decode(request_param(s))?)
 }
 
 fn solana_key(b58: &str) -> anyhow::Result<[u8; 32]> {
@@ -143,14 +156,69 @@ fn solana_key(b58: &str) -> anyhow::Result<[u8; 32]> {
     v.try_into().map_err(|_| anyhow::anyhow!("a Solana pubkey is 32 bytes"))
 }
 
-fn write_proof(path: &Path, env: &Envelope) -> anyhow::Result<String> {
+/// Returns the file as written.
+fn write_proof(path: &Path, env: &Envelope) -> anyhow::Result<Vec<u8>> {
     let file = encode(env);
     std::fs::write(path, &file)?;
-    Ok(to_base64url(&file))
+    Ok(file)
 }
 
-fn prove_demo(world: &DemoWorld, snap: &Snapshot, sk: &SpendingKey, env: &mut Envelope) -> anyhow::Result<usize> {
-    prove(sk, &world.notes()?, snap, env)
+/// The review screen, as on the web, then confirmation. Returns the binding.
+fn review(req: &ProofRequest, bind_solana: Option<&str>, yes: bool) -> anyhow::Result<[u8; 32]> {
+    println!("\n  {}\n", req.sentence());
+    println!("  They will learn: the claim, the block it is as of, that it was made for them, the expiry.");
+    println!("  They will never learn: your balance, which notes, how many, any address, any payment.\n");
+    let t = now();
+    if let Some(by) = req.respond_by.filter(|&by| by < t) {
+        println!("  They asked for an answer by unix time {by}; that has passed ({} ago). You can still answer.\n", plural(((t - by) / 86_400) as usize, "day"));
+    }
+    if req.bind.as_deref() == Some("solana") && bind_solana.is_none() {
+        bail!("this request must be bound to your Solana account: pass --bind-solana <pubkey>");
+    }
+    let binding = bind_solana.map(solana_key).transpose()?.unwrap_or([0; 32]);
+    if !yes {
+        eprint!("  Generate this proof? [y/N] ");
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line)?;
+        if !line.trim().eq_ignore_ascii_case("y") {
+            bail!("cancelled; nothing was generated");
+        }
+    }
+    Ok(binding)
+}
+
+/// Write the proof and record it. `history` is loaded before proving, so a broken history file
+/// fails before the work; if saving still fails, the secret goes to stderr, because a proof
+/// whose secret is lost can never be revoked.
+fn record(mut history: History, out: &Path, env: &Envelope, rs: &[u8; 32], req: &ProofRequest, network: &str, note: Option<String>) -> anyhow::Result<()> {
+    let file = write_proof(out, env)?;
+    let tag = hex::encode(env.revocation);
+    history.entries.push(Entry {
+        id: tag[..16].to_string(),
+        claim: format!("Holds at least {} ZEC", zec(req.zatoshi)),
+        audience: req.audience.clone(),
+        network: network.to_string(),
+        anchor_height: env.anchor.height,
+        issued_at: env.issued_at,
+        expires_at: env.expires_at,
+        revocation_tag: tag.clone(),
+        revocation_secret: hex::encode(rs),
+        revoked_at: None,
+        file: out.display().to_string(),
+    });
+    let path = history_path();
+    if let Err(e) = history.save(&path) {
+        eprintln!("\n  wrote {}, but could not record it in {}.", out.display(), path.display());
+        eprintln!("  Keep this revocation secret; it is the only way to revoke the proof:\n  {}\n", hex::encode(rs));
+        return Err(e);
+    }
+    println!("\n  wrote {} ({} bytes). Nothing was broadcast.", out.display(), file.len());
+    if let Some(note) = note {
+        println!("  {note}");
+    }
+    println!("  proof id {} · revoke with: pof-prove revoke {} --endpoint https://<site>/api/revocations", &tag[..16], &tag[..16]);
+    println!("\n  base64url (paste into /verify):\n{}", to_base64url(&file));
+    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
@@ -173,112 +241,52 @@ fn main() -> anyhow::Result<()> {
 
         Cmd::Demo(Demo::Prove { world, request, bind_solana, out, yes }) => {
             let req = parse_request(&request)?;
-            println!("\n  {}\n", req.sentence());
-            println!("  They will learn: the claim, the block it is as of, that it was made for them, the expiry.");
-            println!("  They will never learn: your balance, which notes, how many, any address, any payment.\n");
-            if req.bind.as_deref() == Some("solana") && bind_solana.is_none() {
-                bail!("this request must be bound to your Solana account: pass --bind-solana <pubkey>");
-            }
-            if !yes {
-                eprint!("  Generate this proof? [y/N] ");
-                let mut line = String::new();
-                std::io::stdin().read_line(&mut line)?;
-                if !line.trim().eq_ignore_ascii_case("y") {
-                    bail!("cancelled; nothing was generated");
-                }
-            }
+            let binding = review(&req, bind_solana.as_deref(), yes)?;
+            let history = History::load(&history_path())?;
             let world: DemoWorld = serde_json::from_slice(&std::fs::read(&world)?)?;
             let pb = stage("pinning the anchor and rebuilding both roots");
             let snap = world.snapshot()?;
             done(pb, format!("demo anchor at block {}", snap.height));
-            let binding = bind_solana.as_deref().map(solana_key).transpose()?.unwrap_or([0; 32]);
             let rs = secret();
             let mut env = envelope_for(&req, snap.anchor(), now(), binding, &rs);
             let pb = stage("selecting notes, building witnesses, proving, signing");
-            let n = prove_demo(&world, &snap, &world.spending_key()?, &mut env)?;
-            done(pb, format!("{} note{} used; balance not revealed", n, if n == 1 { "" } else { "s" }));
-            let b64 = write_proof(&out, &env)?;
-            let tag = hex::encode(env.revocation);
-            let mut h = History::load(&history_path())?;
-            h.entries.push(Entry {
-                id: tag[..16].to_string(),
-                claim: format!("Holds at least {} ZEC", zec(req.zatoshi)),
-                audience: req.audience.clone(),
-                network: snap.network.clone(),
-                anchor_height: snap.height,
-                issued_at: env.issued_at,
-                expires_at: env.expires_at,
-                revocation_tag: tag.clone(),
-                revocation_secret: hex::encode(rs),
-                revoked_at: None,
-                file: out.display().to_string(),
-            });
-            h.save(&history_path())?;
-            println!("\n  wrote {} ({} bytes). Nothing was broadcast.", out.display(), encode(&env).len());
-            println!("  proof id {} · revoke with: pof-prove revoke {}", &tag[..16], &tag[..16]);
-            println!("\n  base64url (paste into /verify):\n{b64}");
+            let n = prove(&world.spending_key()?, &world.notes()?, &snap, &mut env)?;
+            done(pb, format!("{} used; balance not revealed", plural(n, "note")));
+            record(history, &out, &env, &rs, &req, &snap.network, None)?;
         }
 
         Cmd::Demo(Demo::Fixtures { world, out, borrower }) => fixtures(&world, &out, borrower.as_deref())?,
 
         Cmd::Prove { request, snapshot, seed_file, account, network, bind_solana, out, yes } => {
             let req = parse_request(&request)?;
-            println!("\n  {}\n", req.sentence());
-            println!("  They will learn: the claim, the block it is as of, that it was made for them, the expiry.");
-            println!("  They will never learn: your balance, which notes, how many, any address, any payment.\n");
-            if req.bind.as_deref() == Some("solana") && bind_solana.is_none() {
-                bail!("this request must be bound to your Solana account: pass --bind-solana <pubkey>");
-            }
-            if !yes {
-                eprint!("  Generate this proof? [y/N] ");
-                let mut line = String::new();
-                std::io::stdin().read_line(&mut line)?;
-                if !line.trim().eq_ignore_ascii_case("y") {
-                    bail!("cancelled; nothing was generated");
-                }
-            }
+            let binding = review(&req, bind_solana.as_deref(), yes)?;
+            let history = History::load(&history_path())?;
             let pb = stage("reading your seed and deriving the Ironwood key (it stays in this process)");
-            let sk = pof_prove::wallet::spending_key(&pof_prove::wallet::seed_from_file(&seed_file)?, &network, account)?;
+            let sk = wallet::spending_key(&wallet::seed_from_file(&seed_file)?, &network, account)?;
             done(pb, format!("account {account} on {network}"));
             let pb = stage("loading the snapshot");
             let chain = pof_anchor::Snapshot::read(&mut std::fs::File::open(&snapshot)?)?;
             anyhow::ensure!(chain.network == network, "the snapshot is for {}, not {network}", chain.network);
             done(pb, format!("{} Ironwood actions to block {}", chain.actions.len(), chain.height));
             let pb = stage("finding your notes (trial decryption with your viewing key, all cores)");
-            let fvk = voting_crypto_deps::orchard::keys::FullViewingKey::from(&sk);
-            let notes = pof_prove::wallet::find_notes(&chain, &fvk);
-            done(pb, format!("{} note{} found", notes.len(), if notes.len() == 1 { "" } else { "s" }));
-            anyhow::ensure!(!notes.is_empty(), "no Ironwood notes for this key in the snapshot: check the account index, and that your funds are in the Ironwood pool");
+            let fvk = FullViewingKey::from(&sk);
+            let found = wallet::find_notes(&chain, &fvk);
+            let total = found.len();
+            let notes = wallet::unspent(&chain, &fvk, found);
+            done(pb, format!("{} found, {} unspent", plural(total, "note"), notes.len()));
+            anyhow::ensure!(total > 0, "no Ironwood notes for this key in the snapshot: check the account index, and that your funds are in the Ironwood pool");
+            // Fail before the tree work when the unspent notes cannot clear the threshold.
+            select_notes(&notes, req.zatoshi, |_| true)?;
             let pb = stage("rebuilding both roots: the note-commitment tree and the spent-nullifier tree");
-            let snap = pof_prove::wallet::snapshot(&chain)?;
+            let snap = wallet::snapshot(&chain)?;
             done(pb, format!("anchor at block {}", snap.height));
-            let binding = bind_solana.as_deref().map(solana_key).transpose()?.unwrap_or([0; 32]);
             let rs = secret();
             let mut env = envelope_for(&req, snap.anchor(), now(), binding, &rs);
             let pb = stage("selecting notes, building witnesses, proving, signing");
             let n = prove(&sk, &notes, &snap, &mut env)?;
-            done(pb, format!("{} note{} used; balance not revealed", n, if n == 1 { "" } else { "s" }));
-            let b64 = write_proof(&out, &env)?;
-            let tag = hex::encode(env.revocation);
-            let mut h = History::load(&history_path())?;
-            h.entries.push(Entry {
-                id: tag[..16].to_string(),
-                claim: format!("Holds at least {} ZEC", zec(req.zatoshi)),
-                audience: req.audience.clone(),
-                network: network.clone(),
-                anchor_height: snap.height,
-                issued_at: env.issued_at,
-                expires_at: env.expires_at,
-                revocation_tag: tag.clone(),
-                revocation_secret: hex::encode(rs),
-                revoked_at: None,
-                file: out.display().to_string(),
-            });
-            h.save(&history_path())?;
-            println!("\n  wrote {} ({} bytes). Nothing was broadcast.", out.display(), encode(&env).len());
-            println!("  anchor: {network} block {}. Verifiers accept it once this anchor is in their table.", snap.height);
-            println!("  proof id {} · revoke with: pof-prove revoke {}", &tag[..16], &tag[..16]);
-            println!("\n  base64url (paste into /verify):\n{b64}");
+            done(pb, format!("{} used; balance not revealed", plural(n, "note")));
+            let note = format!("anchor: {network} block {}. Verifiers accept it once this anchor is in their table.", snap.height);
+            record(history, &out, &env, &rs, &req, &network, Some(note))?;
         }
 
         Cmd::History { secrets } => {
@@ -288,9 +296,10 @@ fn main() -> anyhow::Result<()> {
             }
             let t = now();
             for e in &h.entries {
+                // as the verifier judges it: expired from the expiry second on
                 let status = if e.revoked_at.is_some() {
                     "revoked"
-                } else if t > e.expires_at {
+                } else if t >= e.expires_at {
                     "expired"
                 } else {
                     "live"
@@ -305,11 +314,13 @@ fn main() -> anyhow::Result<()> {
         Cmd::Revoke { id, endpoint } => {
             let path = history_path();
             let mut h = History::load(&path)?;
-            let e = h.find(&id).ok_or_else(|| anyhow::anyhow!("no proof with id {id} in {}", path.display()))?;
+            let e = h.find(&id).with_context(|| format!("looking in {}", path.display()))?;
             let body = serde_json::json!({ "secret": e.revocation_secret });
-            let res = ureq::post(&endpoint).send_json(&body).context("posting the revocation")?;
-            if res.status().as_u16() >= 300 {
-                bail!("the revocation list refused it: HTTP {}", res.status());
+            // ureq 3 turns every non-2xx status into an error and follows redirects itself.
+            match ureq::post(&endpoint).send_json(&body) {
+                Ok(_) => {}
+                Err(ureq::Error::StatusCode(code)) => bail!("the revocation list refused it: HTTP {code}"),
+                Err(err) => return Err(err).context("posting the revocation"),
             }
             e.revoked_at = Some(now());
             let tag = e.revocation_tag.clone();
@@ -326,6 +337,7 @@ fn fixtures(world_path: &Path, out: &Path, borrower: Option<&str>) -> anyhow::Re
     let world: DemoWorld = serde_json::from_slice(&std::fs::read(world_path)?)?;
     let snap = world.snapshot()?;
     let sk = world.spending_key()?;
+    let notes = world.notes()?;
     let dir = out.join("proofs");
     std::fs::create_dir_all(&dir)?;
     let audience = "pof-credit:usdc-pool-1";
@@ -348,7 +360,7 @@ fn fixtures(world_path: &Path, out: &Path, borrower: Option<&str>) -> anyhow::Re
         let pb = stage(&format!("proving {name}"));
         let mut env = envelope_for(&r, snap.anchor(), issued_at, binding, &rs);
         env.expires_at = expires_at;
-        prove_demo(&world, &snap, &sk, &mut env)?;
+        prove(&sk, &notes, &snap, &mut env)?;
         write_proof(&dir.join(format!("{name}.pof")), &env)?;
         expected.insert(name.into(), serde_json::json!({ "verdict": want, "audience": audience }));
         done(pb, format!("{name}.pof → {want}"));
@@ -397,7 +409,22 @@ fn fixtures(world_path: &Path, out: &Path, borrower: Option<&str>) -> anyhow::Re
     std::fs::write(out.join("revocations.demo.json"), serde_json::to_vec_pretty(&serde_json::json!({ "secrets": revoked }))?)?;
     let meta = serde_json::json!({ "audience": audience, "evaluatedAt": issued + 86_400, "expected": expected });
     std::fs::write(out.join("expected.json"), serde_json::to_vec_pretty(&meta)?)?;
-    let _ = revocation_tag; // tags are derived by verifiers from the published secrets
     println!("wrote {} vectors to {}", meta["expected"].as_object().map_or(0, |m| m.len()), dir.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::request_param;
+
+    #[test]
+    fn request_param_reads_the_r_parameter() {
+        assert_eq!(request_param("eyJ2"), "eyJ2");
+        assert_eq!(request_param("  r=eyJ2 "), "eyJ2");
+        assert_eq!(request_param("https://vouch.example/prove?r=eyJ2"), "eyJ2");
+        assert_eq!(request_param("https://vouch.example/prove?r=eyJ2&referrer=x"), "eyJ2");
+        assert_eq!(request_param("https://vouch.example/prove?referrer=x&r=eyJ2#top"), "eyJ2");
+        // no r parameter: the whole input, which then fails to decode
+        assert_eq!(request_param("https://vouch.example/prove?ref=x"), "https://vouch.example/prove?ref=x");
+    }
 }
