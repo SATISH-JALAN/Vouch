@@ -3,7 +3,7 @@
 import { useEffect, type ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 import { gsap, ScrollTrigger } from '@/lib/gsap'
-import { startLenis, stopLenis, getLenis } from '@/lib/lenis'
+import { startLenis, stopLenis, getLenis, scrollToTarget } from '@/lib/lenis'
 import { motionOK } from '@/lib/motion'
 import { pageEffects } from '@/lib/effects'
 
@@ -40,11 +40,16 @@ export function MotionProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    getLenis()?.scrollTo(0, { immediate: true, force: true })
+    // a link like /docs/trust#credits lands on its section; anything else starts at the top
+    const target = hashTarget()
+    if (!target) getLenis()?.scrollTo(0, { immediate: true, force: true })
     // after the page's own triggers (children's effects run first), so refresh order stays top to bottom
     const kill = motionOK() ? pageEffects() : undefined
-    // new route, new layout: recompute trigger positions after paint
-    const id = requestAnimationFrame(() => ScrollTrigger.refresh())
+    // new route, new layout: recompute trigger positions after paint, then measure the target against them
+    const id = requestAnimationFrame(() => {
+      ScrollTrigger.refresh()
+      if (target) scrollToTarget(target, true)
+    })
     return () => {
       cancelAnimationFrame(id)
       kill?.()
@@ -52,4 +57,15 @@ export function MotionProvider({ children }: { children: ReactNode }) {
   }, [pathname])
 
   return <>{children}</>
+}
+
+/** The element the URL's #fragment names, if any. /verify's #p=… payload names none. */
+function hashTarget(): HTMLElement | null {
+  const id = window.location.hash.slice(1)
+  if (!id) return null
+  try {
+    return document.getElementById(decodeURIComponent(id))
+  } catch {
+    return null
+  }
 }

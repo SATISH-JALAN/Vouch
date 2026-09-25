@@ -1,8 +1,8 @@
 'use client'
 
-import { useRef, type RefObject } from 'react'
-import { gsap, ScrollTrigger, SplitText, useGSAP } from '@/lib/gsap'
-import { D, E, STAGGER, isDesktop, motionOK } from '@/lib/motion'
+import type { RefObject } from 'react'
+import { gsap, SplitText, useGSAP } from '@/lib/gsap'
+import { D, E, STAGGER, motionOK } from '@/lib/motion'
 
 /** 12.2 — masked line reveal for headings and prose. */
 export function useLineReveal<T extends HTMLElement>(ref: RefObject<T | null>, start = 'top 82%') {
@@ -15,7 +15,10 @@ export function useLineReveal<T extends HTMLElement>(ref: RefObject<T | null>, s
         return
       }
       let split: SplitText | null = null
+      // fonts can settle after unmount; splitting a detached node would leak its trigger
+      let dead = false
       const run = contextSafe!(() => {
+        if (dead) return
         split = SplitText.create(el, { type: 'lines', mask: 'lines', linesClass: 'line' })
         gsap.set(el, { visibility: 'visible' })
         gsap.from(split.lines, {
@@ -28,38 +31,12 @@ export function useLineReveal<T extends HTMLElement>(ref: RefObject<T | null>, s
         })
       })
       document.fonts.ready.then(run)
-      return () => split?.revert()
+      return () => {
+        dead = true
+        split?.revert()
+      }
     },
     { scope: ref },
-  )
-}
-
-/** 12.3 — the signature animation. Collapses every [data-reveal] bar in scope from the right. */
-export function useRedactReveal<T extends HTMLElement>(
-  ref: RefObject<T | null>,
-  opts: { start?: string; delay?: number; enabled?: boolean } = {},
-) {
-  const { start = 'top 80%', delay = 0, enabled = true } = opts
-  useGSAP(
-    () => {
-      const el = ref.current
-      if (!el || !enabled) return
-      const bars = el.querySelectorAll<HTMLElement>('[data-reveal]')
-      if (!motionOK() || !isDesktop()) {
-        gsap.set(bars, { scaleX: 0 })
-        return
-      }
-      gsap.to(bars, {
-        scaleX: 0,
-        transformOrigin: 'right center',
-        duration: D.md,
-        ease: E.big,
-        delay,
-        stagger: STAGGER.line,
-        scrollTrigger: { trigger: el, start, once: true },
-      })
-    },
-    { scope: ref, dependencies: [enabled] },
   )
 }
 
@@ -139,20 +116,5 @@ export function useMagnetic<T extends HTMLElement>(ref: RefObject<T | null>, str
       return () => window.removeEventListener('pointermove', onMove)
     },
     { scope: ref },
-  )
-}
-
-/** Refresh trigger positions after async layout work (WASM load, verdict render). */
-export function useRefreshOn(dep: unknown) {
-  const first = useRef(true)
-  useGSAP(
-    () => {
-      if (first.current) {
-        first.current = false
-        return
-      }
-      requestAnimationFrame(() => ScrollTrigger.refresh())
-    },
-    { dependencies: [dep] },
   )
 }

@@ -16,6 +16,7 @@ export function RouteTransition() {
   const router = useRouter()
   const pathname = usePathname()
   const pending = useRef<string | null>(null)
+  const fallback = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -41,12 +42,16 @@ export function RouteTransition() {
         onComplete: () => router.push(url.pathname + url.search + url.hash),
       })
       // never leave the cover up if navigation stalls
-      setTimeout(() => {
+      clearTimeout(fallback.current)
+      fallback.current = setTimeout(() => {
         if (pending.current) release()
       }, 3000)
     }
     document.addEventListener('click', onClick, true)
-    return () => document.removeEventListener('click', onClick, true)
+    return () => {
+      document.removeEventListener('click', onClick, true)
+      clearTimeout(fallback.current)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router])
 
@@ -54,6 +59,7 @@ export function RouteTransition() {
     const el = overlay.current
     if (!el) return
     pending.current = null
+    clearTimeout(fallback.current)
     gsap.fromTo(
       el,
       { clipPath: 'circle(142% at 50% 50%)' },

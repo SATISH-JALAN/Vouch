@@ -36,8 +36,11 @@ export function Preloader() {
         .add(() => setIntroDone(), EXIT - 0.02)
         .fromTo(el, { clipPath: 'inset(0 0 0% 0)' }, { clipPath: 'inset(0 0 100% 0)', duration: D.lg * 0.95, ease: E.big }, EXIT)
 
+      // seek() suppresses callbacks by default, so the setIntroDone above would never fire: call it here
       const skip = contextSafe!(() => {
-        if (tl.time() < EXIT) tl.seek(EXIT)
+        if (tl.time() >= EXIT) return
+        setIntroDone()
+        tl.seek(EXIT)
       })
       window.addEventListener('keydown', skip)
       el.addEventListener('click', skip)
