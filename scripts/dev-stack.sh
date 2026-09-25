@@ -5,7 +5,7 @@
 #   ./scripts/dev-stack.sh            # then open http://localhost:3000/demo
 #   SITE=http://localhost:3000 node scripts/e2e.mjs    # in another shell: the full end-to-end check
 #
-# Needs: solana CLI (solana-test-validator, solana-keygen), cargo, node 22+, pnpm.
+# Needs: solana CLI (solana-test-validator, solana-keygen), cargo, node 22.18+ (runs .ts directly), pnpm.
 # The SBF programs must be built once: (cd backend/solana && anchor build).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -39,7 +39,7 @@ wait_for() { # url, name
 
 echo "· validator (logs: $RUN/validator.log)"
 solana-test-validator --reset --quiet --ledger "$RUN/ledger" --bind-address 127.0.0.1 --rpc-port 8899 \
-  --bpf-program "$GATE_ID" "$DEPLOY/pof_gate.so" \
+  --upgradeable-program "$GATE_ID" "$DEPLOY/pof_gate.so" "$KEYS/admin.json" \
   --bpf-program "$CREDIT_ID" "$DEPLOY/pof_credit.so" > "$RUN/validator.log" 2>&1 &
 pids+=($!)
 wait_for $RPC validator POST '{"jsonrpc":"2.0","id":1,"method":"getHealth"}'
@@ -60,7 +60,10 @@ ATTESTOR=$(curl -s http://127.0.0.1:8787/v1/pubkey | node -e 'let s="";process.s
 echo "· pof-gate allowlist, dUSDC mint and the credit pool"
 cd frontend
 [ -d node_modules ] || pnpm install --frozen-lockfile
-eval "$(SOLANA_RPC_URL=$RPC ADMIN_KEYPAIR=$KEYS/admin.json ATTESTORS=$ATTESTOR node --no-warnings scripts/solana-setup.ts)"
+# a plain assignment keeps set -e: inside `eval "$(…)"` the setup's exit status would be lost
+setup=$(SOLANA_RPC_URL=$RPC ADMIN_KEYPAIR=$KEYS/admin.json ATTESTORS=$ATTESTOR node --no-warnings scripts/solana-setup.ts)
+eval "$setup"
+[ -n "${POF_POOL:-}" ] || { echo "solana-setup printed no POF_POOL:"; echo "$setup"; exit 1; }
 
 echo "· site on http://localhost:3000 (LIVE mode)"
 export POF_ATTEST_URL=http://127.0.0.1:8787 SOLANA_RPC_URL=$RPC SOLANA_CLUSTER=localnet POF_POOL
