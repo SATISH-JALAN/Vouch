@@ -135,3 +135,65 @@ fn refuses_what_it_cannot_prove() {
     let mut env = envelope(&w, ZEC + 1);
     assert!(matches!(prove_holding(&w.sk, held(&w, &[0]), &w.imt, &mut env), Err(ProveError::NotWholeUnits)));
 }
+
+/// The circuit checks each note slot on its own, so a proof that repeats one note in all five
+/// slots is a valid Halo2 proof of five times the holding. The verifier must refuse it.
+#[test]
+#[ignore = "real proofs"]
+fn one_note_cannot_be_counted_twice() {
+    use pof_core::signing_message;
+    use pof_zk::round_id;
+    use voting_circuits::delegation::{build_delegation_bundle, create_delegation_proof, verify_delegation_proof, RealNoteInput};
+    use voting_crypto_deps::orchard::keys::{SpendAuthorizingKey, SpendValidatingKey};
+
+    let w = world();
+    let v = Verifier::new().unwrap();
+
+    // The prover refuses outright.
+    let mut env = envelope(&w, 5 * ZEC);
+    assert!(matches!(prove_holding(&w.sk, held(&w, &[1, 1]), &w.imt, &mut env), Err(ProveError::DuplicateNote)));
+
+    // A hand-built proof: the 3 ZEC note five times, claiming 15 ZEC.
+    let mut rng = OsRng;
+    let mut env = envelope(&w, 15 * ZEC);
+    let fvk = FullViewingKey::from(&w.sk);
+    let real = held(&w, &[1, 1, 1, 1, 1])
+        .into_iter()
+        .map(|h| RealNoteInput {
+            imt_proof: w.imt.non_membership_proof(h.note.nullifier(&fvk).inner()).unwrap(),
+            note: h.note,
+            fvk: fvk.clone(),
+            merkle_path: h.merkle_path,
+            scope: h.scope,
+        })
+        .collect();
+    let alpha = pallas::Scalar::random(&mut rng);
+    let nc_root = pof_zk::base_from_bytes(&env.anchor.nc_root).unwrap();
+    let bundle = build_delegation_bundle(
+        real,
+        &fvk,
+        alpha,
+        fvk.address_at(0u32, Scope::Internal),
+        round_id(&env),
+        nc_root,
+        pallas::Base::random(&mut rng),
+        &w.imt,
+        &mut rng,
+        None,
+    )
+    .unwrap();
+    let instance = bundle.instance.with_min_ballots(15 * 8);
+    let proof = create_delegation_proof(bundle.circuit, &instance).unwrap();
+    assert!(verify_delegation_proof(&proof, &instance).is_ok(), "the circuit alone accepts the repeated note");
+
+    let rk = SpendValidatingKey::from(fvk.clone()).randomize(&alpha);
+    let mut inputs = vec![base_to_bytes(&instance.nf_signed.inner()), <[u8; 32]>::from(&rk)];
+    inputs.push(base_to_bytes(&instance.cmx_new));
+    inputs.push(base_to_bytes(&instance.van_comm));
+    inputs.extend(instance.gov_null.iter().map(base_to_bytes));
+    env.evidence.public_inputs = inputs;
+    env.evidence.proof = proof;
+    let sig = SpendAuthorizingKey::from(&w.sk).randomize(&alpha).sign(rng, &signing_message(&env));
+    env.evidence.signature = <[u8; 64]>::from(&sig);
+    assert_eq!(v.verify_holding(&env), Err(ZkError::DuplicateNote));
+}

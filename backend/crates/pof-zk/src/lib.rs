@@ -55,6 +55,8 @@ pub enum ZkError {
     InputCount(usize),
     #[error("a public input is not a canonical field element")]
     NonCanonical,
+    #[error("the same note is counted more than once")]
+    DuplicateNote,
     #[error("the spend-authorisation key is not a valid point")]
     BadKey,
     #[error("the spend-authorisation signature does not verify")]
@@ -97,9 +99,6 @@ impl Verifier {
     /// Loads the embedded parameters and verifying-key commitments: synthesis only, no MSMs.
     /// A native test (`embedded_vk_matches_keygen`) proves the embedded key equals `keygen_vk`.
     pub fn new() -> Result<Self, ZkError> {
-        if EMBEDDED_PARAMS.is_empty() || EMBEDDED_VK.is_empty() {
-            return Self::derive();
-        }
         let params = Params::read(&mut &EMBEDDED_PARAMS[..]).map_err(|e| ZkError::Keygen(e.to_string()))?;
         let (fixed, perm) = decode_commitments(EMBEDDED_VK).ok_or_else(|| ZkError::Keygen("embedded key is corrupt".into()))?;
         let vk = keygen_vk_from_commitments(&params, &Circuit::default(), fixed, perm).map_err(|e| ZkError::Keygen(format!("{e:?}")))?;
@@ -122,25 +121,20 @@ impl Verifier {
         (params, encode_commitments(&fixed, &perm))
     }
 
-    /// A short fingerprint of the verifying key, for display and for pinning in receipts.
+    /// A short fingerprint of the verifying key (the first 8 bytes of its blake2b-256), for
+    /// display and for pinning in receipts.
     pub fn fingerprint(&self) -> String {
         let (fixed, perm) = vk_commitments(&self.vk);
-        let enc = encode_commitments(&fixed, &perm);
-        let mut h = [0u8; 8];
-        for (i, b) in enc.iter().enumerate() {
-            h[i % 8] ^= b.rotate_left((i / 8 % 8) as u32);
-        }
-        h.iter().map(|b| format!("{b:02x}")).collect()
+        let h = blake2b_simd::Params::new().hash_length(32).personal(b"vouch-vk-v1\0\0\0\0\0").hash(&encode_commitments(&fixed, &perm));
+        h.as_bytes()[..8].iter().map(|b| format!("{b:02x}")).collect()
     }
 
     /// Verify the evidence of a `HoldsAtLeast` envelope. The caller has already checked
     /// that `env.anchor` matches an authenticated anchor; this checks signature and proof.
     pub fn verify_holding(&self, env: &Envelope) -> Result<(), ZkError> {
-        let instance = instance_for(env)?;
+        let (instance, rk) = parts(env)?;
 
         // Signature first: it is cheap and binds the statement to the proof's rk.
-        let rk_bytes = env.evidence.public_inputs[1];
-        let rk = redpallas::VerificationKey::<SpendAuth>::try_from(rk_bytes).map_err(|_| ZkError::BadKey)?;
         let sig = redpallas::Signature::<SpendAuth>::from(env.evidence.signature);
         rk.verify(&signing_message(env), &sig).map_err(|_| ZkError::BadSignature)?;
 
@@ -156,12 +150,22 @@ impl Verifier {
     }
 }
 
+/// The circuit's `min_ballots` for a claim. Only whole-unit `HoldsAtLeast` claims are provable.
+pub(crate) fn min_ballots(claim: &Claim) -> Result<u64, ZkError> {
+    match claim {
+        Claim::HoldsAtLeast { .. } => claim.min_units().ok_or(ZkError::NotWholeUnits),
+        _ => Err(ZkError::UnsupportedClaim),
+    }
+}
+
 /// Rebuild the circuit's 15 public inputs from an envelope: 9 carried, 6 derived.
 pub fn instance_for(env: &Envelope) -> Result<Instance, ZkError> {
-    let min = match env.claim {
-        Claim::HoldsAtLeast { .. } => env.claim.min_units().ok_or(ZkError::NotWholeUnits)?,
-        _ => return Err(ZkError::UnsupportedClaim),
-    };
+    parts(env).map(|(instance, _)| instance)
+}
+
+/// The instance, and the proof's `rk` parsed once for the signature check as well.
+fn parts(env: &Envelope) -> Result<(Instance, redpallas::VerificationKey<SpendAuth>), ZkError> {
+    let min = min_ballots(&env.claim)?;
     let pi = &env.evidence.public_inputs;
     if pi.len() != CARRIED_INPUTS {
         return Err(ZkError::InputCount(pi.len()));
@@ -174,12 +178,19 @@ pub fn instance_for(env: &Envelope) -> Result<Instance, ZkError> {
     for (slot, bytes) in gov_null.iter_mut().zip(&pi[4..9]) {
         *slot = base_from_bytes(bytes)?;
     }
+    // The circuit checks each of the 5 slots on its own; upstream relies on the vote chain to
+    // refuse a repeated gov_null. Nothing downstream of Vouch does, so the verifier must: the
+    // same note in two slots always yields the same gov_null = Poseidon(nk, dom, nf), and would
+    // otherwise be summed twice. Honest padding notes have random nullifiers, so never collide.
+    if pi[4..9].iter().enumerate().any(|(i, a)| pi[4 + i + 1..9].contains(a)) {
+        return Err(ZkError::DuplicateNote);
+    }
     let round = round_id(env);
     let nc_root = base_from_bytes(&env.anchor.nc_root)?;
     let nf_root = base_from_bytes(&env.anchor.nf_root)?;
-    Instance::from_parts(
+    let instance = Instance::from_parts(
         Nullifier::from_inner(nf_signed),
-        rk,
+        rk.clone(),
         cmx_new,
         van_comm,
         round,
@@ -188,8 +199,8 @@ pub fn instance_for(env: &Envelope) -> Result<Instance, ZkError> {
         gov_null,
         derive_nullifier_domain(round),
     )
-    .map(|i| i.with_min_ballots(min))
-    .map_err(|_| ZkError::BadKey)
+    .map_err(|_| ZkError::BadKey)?;
+    Ok((instance.with_min_ballots(min), rk))
 }
 
 /// `u32 LE count ‖ 32-byte points` for fixed commitments, then the same for permutation.
