@@ -8,20 +8,17 @@ import type { Check, Preset, PresetId, VerificationResult } from '@/lib/data/typ
 import { formatInt } from '@/lib/format'
 import { revealRows } from '@/lib/reveal'
 import { fromBase64Url, toBase64Url } from '@/lib/pof/bytes'
-import { MAGIC } from '@/lib/pof/codec'
+import { downloadBytes, isPofBinary } from '@/lib/files'
 import { downloadReceipt } from '@/lib/receipt'
 import { Verdict, present } from '@/components/ui/Verdict'
 import { RevealTable } from '@/components/ui/RevealTable'
 import { DataTable } from '@/components/ui/DataTable'
 import { Chip, cx, Panel } from '@/components/ui/primitives'
+import { useCopy } from '@/components/ui/useCopy'
 import { SourceNote } from './SourceNote'
 
 const MAX_BYTES = 1024 * 1024
 const AUDIENCE_KEY = 'vouch:verify:audience'
-
-function isPofBinary(b: Uint8Array) {
-  return b.length >= 4 && MAGIC.every((m, i) => b[i] === m)
-}
 
 function readStored(key: string): string | null {
   try {
@@ -38,35 +35,51 @@ function writeStored(key: string, value: string) {
   }
 }
 
-export function VerifierConsole({ variant = 'full' }: { variant?: 'full' | 'landing' }) {
+/** A verdict together with exactly what was verified, so later edits to the fields cannot relabel it. */
+interface Checked {
+  result: VerificationResult
+  /** The proof as base64url text. */
+  text: string
+  audience: string
+}
+
+export function VerifierConsole() {
   const [text, setText] = useState('')
   const [audience, setAudience] = useState<string>(DEMO_AUDIENCE.id)
   const [active, setActive] = useState<PresetId | 'custom' | null>(null)
-  const [result, setResult] = useState<VerificationResult | null>(null)
+  const [checked, setChecked] = useState<Checked | null>(null)
   const [busy, setBusy] = useState(false)
   const [ready, setReady] = useState<'loading' | 'ready' | 'failed'>('loading')
   const [version, setVersion] = useState('pof-verify')
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  // only the latest run may land: an older one finishing late must not overwrite it
+  const seq = useRef(0)
 
   const run = useCallback(async (input: string | Uint8Array, which: PresetId | 'custom', as: string) => {
+    const mine = ++seq.current
     setActive(which)
     setError(null)
     const size = typeof input === 'string' ? input.length * 0.75 : input.length
     if (size > MAX_BYTES) {
-      setResult(null)
+      setChecked(null)
+      setBusy(false)
       setError(`That is ${formatInt(Math.round(size))} bytes. A proof is about 12 KB; nothing over 1 MB is checked.`)
       return
     }
+    const audience = as.trim()
+    const text = typeof input === 'string' ? input.trim() : toBase64Url(input)
     setBusy(true)
     try {
-      setResult(await verify(input, as.trim()))
+      const result = await verify(input, audience, { count: true })
+      if (mine === seq.current) setChecked({ result, text, audience })
     } catch (err) {
-      setResult(null)
+      if (mine !== seq.current) return
+      setChecked(null)
       setError(`The verifier could not run: ${(err as Error).message}. Nothing was checked.`)
     } finally {
-      setBusy(false)
+      if (mine === seq.current) setBusy(false)
     }
   }, [])
 
@@ -90,18 +103,20 @@ export function VerifierConsole({ variant = 'full' }: { variant?: 'full' | 'land
   }, [run])
 
   const runPreset = async (p: Preset) => {
+    const mine = ++seq.current
     setAudience(p.audience)
     try {
       const bytes = await fetchPreset(p.file)
+      if (mine !== seq.current) return
       setText(toBase64Url(bytes))
       await run(bytes, p.id, p.audience)
     } catch (err) {
-      setError((err as Error).message)
+      if (mine === seq.current) setError((err as Error).message)
     }
   }
 
   const onFile = async (file: File | undefined) => {
-    if (!file) return
+    if (!file || busy) return
     if (file.size > MAX_BYTES) {
       setError(`That file is ${formatInt(file.size)} bytes. A proof is about 12 KB; nothing over 1 MB is checked.`)
       return
@@ -125,13 +140,14 @@ export function VerifierConsole({ variant = 'full' }: { variant?: 'full' | 'land
 
   const clear = () => {
     setText('')
-    setResult(null)
+    setChecked(null)
     setError(null)
     setActive(null)
+    // otherwise choosing the same file again fires no change event
+    if (fileInput.current) fileInput.current.value = ''
     if (window.location.hash) history.replaceState(null, '', window.location.pathname)
   }
 
-  const full = variant === 'full'
   const current = PRESETS.find((p) => p.id === active)
 
   return (
@@ -140,7 +156,7 @@ export function VerifierConsole({ variant = 'full' }: { variant?: 'full' | 'land
         label="Proof input"
         chip={<Chip status={ready === 'failed' ? 'invalid' : 'neutral'}>{ready === 'ready' ? `WASM · ${version}` : ready === 'failed' ? 'VERIFIER FAILED TO LOAD' : 'LOADING VERIFIER'}</Chip>}
       >
-        <div className={cx('grid gap-6 p-5 sm:p-6', full && 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]')}>
+        <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
           {/* dropzone */}
           <label
             onDragOver={(e) => {
@@ -150,8 +166,10 @@ export function VerifierConsole({ variant = 'full' }: { variant?: 'full' | 'land
             onDragLeave={() => setDragging(false)}
             onDrop={onDrop}
             data-cursor="OPEN"
+            aria-disabled={busy || undefined}
             className={cx(
-              'flex min-h-[168px] flex-col items-start justify-between gap-6 rounded-panel border border-dashed p-5 transition-colors duration-200 hover:border-ink hover:bg-bone-2 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-[3px] has-[:focus-visible]:outline-seal',
+              'flex min-h-[168px] flex-col items-start justify-between gap-6 rounded-panel border border-dashed p-5 transition-colors duration-200 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-[3px] has-[:focus-visible]:outline-seal',
+              busy ? 'cursor-wait' : 'hover:border-ink hover:bg-bone-2',
               dragging ? 'border-ink bg-bone-2' : 'border-border',
             )}
           >
@@ -160,52 +178,52 @@ export function VerifierConsole({ variant = 'full' }: { variant?: 'full' | 'land
               <span className="t-title block">Drop a proof here, or choose a file.</span>
               <span className="t-small mt-1 block text-ink-2">Binary .pof or base64url text. It is read in this browser and never uploaded.</span>
             </span>
-            <input ref={fileInput} type="file" accept=".pof,.txt,application/octet-stream,text/plain" className="sr-only" onChange={(e) => void onFile(e.target.files?.[0])} />
+            <input ref={fileInput} type="file" accept=".pof,.txt,application/octet-stream,text/plain" className="sr-only" disabled={busy} onChange={(e) => void onFile(e.target.files?.[0])} />
           </label>
 
-          {full && (
-            <div className="flex flex-col gap-4">
-              <label className="flex flex-col gap-2">
-                <span className="t-eyebrow text-ink-3">OR PASTE BASE64URL</span>
-                <textarea
-                  className="field t-data-sm min-h-[108px] break-all"
-                  spellCheck={false}
-                  value={text}
+          <div className="flex flex-col gap-4">
+            <label className="flex flex-col gap-2">
+              <span className="t-eyebrow text-ink-3">OR PASTE BASE64URL</span>
+              <textarea
+                className="field t-data-sm min-h-[108px] break-all"
+                spellCheck={false}
+                readOnly={busy}
+                value={text}
+                onChange={(e) => {
+                  setText(e.target.value)
+                  setActive('custom')
+                }}
+                placeholder="UE9GMQEA…"
+                aria-describedby="paste-hint"
+              />
+            </label>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <label className="flex flex-1 flex-col gap-2">
+                <span className="t-eyebrow text-ink-3">VERIFYING AS</span>
+                <input
+                  className="field t-data"
+                  readOnly={busy}
+                  value={audience}
                   onChange={(e) => {
-                    setText(e.target.value)
-                    setActive('custom')
+                    setAudience(e.target.value)
+                    writeStored(AUDIENCE_KEY, e.target.value)
                   }}
-                  placeholder="UE9GMQEA…"
-                  aria-describedby="paste-hint"
+                  spellCheck={false}
                 />
               </label>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                <label className="flex flex-1 flex-col gap-2">
-                  <span className="t-eyebrow text-ink-3">VERIFYING AS</span>
-                  <input
-                    className="field t-data"
-                    value={audience}
-                    onChange={(e) => {
-                      setAudience(e.target.value)
-                      writeStored(AUDIENCE_KEY, e.target.value)
-                    }}
-                    spellCheck={false}
-                  />
-                </label>
-                <div className="flex gap-2">
-                  <button type="button" className="btn btn-primary" data-cursor="VERIFY" disabled={!text.trim() || busy || ready === 'failed'} onClick={() => void run(text, active && active !== 'custom' ? active : 'custom', audience)}>
-                    {busy ? 'Checking…' : 'Verify'}
-                  </button>
-                  <button type="button" className="btn btn-secondary" onClick={clear} disabled={!text && !result && !error}>
-                    Clear
-                  </button>
-                </div>
+              <div className="flex gap-2">
+                <button type="button" className="btn btn-primary" data-cursor="VERIFY" disabled={!text.trim() || busy || ready === 'failed'} onClick={() => void run(text, active && active !== 'custom' ? active : 'custom', audience)}>
+                  {busy ? 'Checking…' : 'Verify'}
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={clear} disabled={busy || (!text && !checked && !error)}>
+                  Clear
+                </button>
               </div>
-              <p id="paste-hint" className="t-data-sm text-ink-3">
-                Try it: load a vector, change one character, verify again. Change the identifier and it will refuse.
-              </p>
             </div>
-          )}
+            <p id="paste-hint" className="t-data-sm text-ink-3">
+              Try it: load a vector, change one character, verify again. Change the identifier and it will refuse.
+            </p>
+          </div>
         </div>
 
         <div className="border-t border-border px-5 py-4 sm:px-6">
@@ -243,39 +261,35 @@ export function VerifierConsole({ variant = 'full' }: { variant?: 'full' | 'land
         </div>
       )}
 
-      {result ? (
+      <div aria-live="polite">
+        {checked ? (
+          <Verdict result={checked.result} audienceId={checked.audience} />
+        ) : (
+          <div className="rounded-panel border border-dashed border-border px-5 py-8 sm:px-8">
+            <p className="t-data text-ink-3">{busy ? 'Checking…' : 'No proof checked yet. A verdict appears here: valid, invalid, or expired.'}</p>
+          </div>
+        )}
+      </div>
+      {checked && (
         <>
-          <Verdict result={result} audienceId={audience.trim()} />
-          <SourceNote anchor={result.anchor} verifier={result.verifier} />
-          {full && <ResultDetail result={result} text={text} audience={audience.trim()} />}
+          <SourceNote result={checked.result} />
+          <ResultDetail {...checked} />
         </>
-      ) : (
-        <div className="rounded-panel border border-dashed border-border px-5 py-8 sm:px-8">
-          <p className="t-data text-ink-3">{busy ? 'Checking…' : 'No proof checked yet. A verdict appears here: valid, invalid, or expired.'}</p>
-        </div>
       )}
     </div>
   )
 }
 
-function ResultDetail({ result, text, audience }: { result: VerificationResult; text: string; audience: string }) {
+function ResultDetail({ result, text, audience }: Checked) {
   const tone = present(result.verdict, result.now).tone
   const failColor = tone === 'expired' ? 'text-expired' : tone === 'invalid' ? 'text-invalid' : 'text-ink'
-  const [copied, setCopied] = useState<string | null>(null)
+  const { copied, copy } = useCopy()
 
-  const bytes = useMemo(() => (text ? fromBase64Url(text.trim()) : null), [text])
-  const downloadHref = useMemo(() => {
-    if (!bytes || !isPofBinary(bytes) || typeof window === 'undefined') return null
-    return URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/octet-stream' }))
-  }, [bytes])
-  useEffect(() => () => void (downloadHref && URL.revokeObjectURL(downloadHref)), [downloadHref])
-
-  const copy = async (what: string, value: string) => {
-    await navigator.clipboard.writeText(value).catch(() => {})
-    setCopied(what)
-    setTimeout(() => setCopied(null), 600)
-  }
-  const link = () => `${window.location.origin}/verify#p=${text.trim()}&a=${encodeURIComponent(audience)}`
+  const pof = useMemo(() => {
+    const bytes = text ? fromBase64Url(text) : null
+    return bytes && isPofBinary(bytes) ? bytes : null
+  }, [text])
+  const link = () => `${window.location.origin}/verify#p=${text}&a=${encodeURIComponent(audience)}`
 
   return (
     <div className="space-y-12 pt-6">
@@ -316,7 +330,7 @@ function ResultDetail({ result, text, audience }: { result: VerificationResult; 
           <h3 id="reveal-h" className="t-eyebrow mb-4 text-ink-3">
             WHAT THIS PROOF DISCLOSED
           </h3>
-          <RevealTable {...revealRows(result.envelope, result.verdict)} />
+          <RevealTable {...revealRows(result.envelope, result.checks)} />
         </section>
       )}
 
@@ -327,16 +341,16 @@ function ResultDetail({ result, text, audience }: { result: VerificationResult; 
               THE FILE · {formatInt(result.sizeBytes)} BYTES · BASE64URL
             </h3>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="btn btn-sm btn-secondary" data-cursor="COPY" onClick={() => void copy('text', text.trim())}>
+              <button type="button" className="btn btn-sm btn-secondary" data-cursor="COPY" onClick={() => void copy(text, 'text')}>
                 <span className={copied === 'text' ? 'text-valid' : undefined}>{copied === 'text' ? 'Copied' : 'Copy'}</span>
               </button>
-              <button type="button" className="btn btn-sm btn-secondary" data-cursor="COPY" onClick={() => void copy('link', link())}>
+              <button type="button" className="btn btn-sm btn-secondary" data-cursor="COPY" onClick={() => void copy(link(), 'link')}>
                 <span className={copied === 'link' ? 'text-valid' : undefined}>{copied === 'link' ? 'Copied' : 'Copy verify link'}</span>
               </button>
-              {downloadHref && (
-                <a className="btn btn-sm btn-secondary" href={downloadHref} download="proof.pof" data-cursor="OPEN">
+              {pof && (
+                <button type="button" className="btn btn-sm btn-secondary" data-cursor="OPEN" onClick={() => downloadBytes(pof as BlobPart, 'proof.pof', 'application/octet-stream')}>
                   Download .pof
-                </a>
+                </button>
               )}
             </div>
           </div>

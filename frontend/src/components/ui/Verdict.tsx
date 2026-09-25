@@ -57,7 +57,8 @@ export function present(v: V, now: number): Presentation {
 
 /**
  * The most important surface on the site. Text never animates. Only the mark and the border
- * change state: valid settles, invalid snaps. (12.6)
+ * change state: valid settles, invalid snaps. (12.6) Callers own the aria-live region around it, so it
+ * exists before the first verdict arrives.
  */
 export function Verdict({ result, audienceId, className }: { result: VerificationResult; audienceId?: string; className?: string }) {
   const root = useRef<HTMLDivElement>(null)
@@ -96,8 +97,6 @@ export function Verdict({ result, audienceId, className }: { result: Verificatio
   return (
     <div
       ref={root}
-      role="status"
-      aria-live="polite"
       className={cx('rounded-panel border bg-bone px-5 py-6 sm:px-8 sm:py-8', className)}
       style={{ borderColor: BORDER[p.tone] }}
     >
@@ -113,7 +112,7 @@ export function Verdict({ result, audienceId, className }: { result: Verificatio
             <div className="mt-5 space-y-2">
               <ClaimLine claim={v.claim} anchorHeight={v.anchorHeight} />
               <p className="t-data text-ink-2">
-                Made for you · valid until {formatDate(env.expiresAt)} · {passed} of 6 checks passed
+                Made for you · valid until {formatDate(env.expiresAt)} · {passed} of {result.checks.length} checks passed
                 {result.anchor?.network === 'demo' && ' · demo anchor'}
               </p>
             </div>

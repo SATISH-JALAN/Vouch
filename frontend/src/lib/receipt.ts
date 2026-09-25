@@ -1,5 +1,6 @@
 import type { VerificationResult } from './data/types'
 import { formatStamp } from './format'
+import { downloadBytes } from './files'
 
 /**
  * The verifier's audit record: what was checked, against what, by which verifier build, and
@@ -24,11 +25,5 @@ export function receiptFor(result: VerificationResult, audience: string) {
 }
 
 export function downloadReceipt(result: VerificationResult, audience: string) {
-  const body = JSON.stringify(receiptFor(result, audience), null, 2)
-  const url = URL.createObjectURL(new Blob([body], { type: 'application/json' }))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `vouch-receipt-${result.now}.json`
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1_000)
+  downloadBytes(JSON.stringify(receiptFor(result, audience), null, 2), `vouch-receipt-${result.now}.json`, 'application/json')
 }

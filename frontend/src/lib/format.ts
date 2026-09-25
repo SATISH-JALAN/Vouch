@@ -4,7 +4,7 @@ import type { Claim } from './data/types.ts'
 
 export const ZAT_PER_ZEC = 100_000_000n
 
-/** 50_000_000_000 → "500.00000000". Pass `decimals` to round for prose. */
+/** 50_000_000_000 → "500.00000000". Pass `decimals` to truncate (never round) for prose. */
 export function formatZec(zatoshi: number | bigint | string, decimals = 8): string {
   const z = BigInt(zatoshi)
   const neg = z < 0n
@@ -15,13 +15,8 @@ export function formatZec(zatoshi: number | bigint | string, decimals = 8): stri
   return `${neg ? '-' : ''}${w}${decimals > 0 ? '.' + frac : ''}`
 }
 
-/** "500", "500.5", "0.00000001" → zatoshi. Returns null on anything malformed or over 8 decimals. */
-export function parseZec(input: string): bigint | null {
-  const s = input.trim().replace(/,/g, '')
-  const m = /^(\d+)(?:\.(\d{0,8}))?$/.exec(s)
-  if (!m) return null
-  return BigInt(m[1]!) * ZAT_PER_ZEC + BigInt((m[2] ?? '').padEnd(8, '0') || '0')
-}
+/** Exact, trailing zeros trimmed, as pof-prove's zec() prints it: "500", "0.125", "500.375". */
+export const formatZecExact = (zatoshi: number | bigint | string) => formatZec(zatoshi).replace(/\.?0+$/, '')
 
 export const formatInt = (n: number | bigint) => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 
@@ -55,19 +50,12 @@ export function truncateMiddle(s: string, head = 5, tail = 4): string {
 export function claimParts(c: Claim): { before: string; value: string; after: string } {
   switch (c.kind) {
     case 'HoldsAtLeast':
-      return { before: 'Holds at least', value: `${formatZec(c.zatoshi, 2)} ZEC`, after: '' }
+      return { before: 'Holds at least', value: `${formatZecExact(c.zatoshi)} ZEC`, after: '' }
     case 'HoldsExactly':
       return { before: 'Holds exactly', value: `${formatZec(c.zatoshi)} ZEC`, after: '' }
     case 'ReceivedPayment':
       return { before: 'Received', value: `${formatZec(c.zatoshi)} ZEC`, after: `in transaction ${truncateMiddle(c.txid, 6, 6)}` }
     case 'ReceivedAtLeastSince':
-      return { before: 'Received at least', value: `${formatZec(c.zatoshi, 2)} ZEC`, after: `since block ${formatInt(c.fromHeight)}` }
+      return { before: 'Received at least', value: `${formatZecExact(c.zatoshi)} ZEC`, after: `since block ${formatInt(c.fromHeight)}` }
   }
-}
-
-export const CLAIM_LABEL: Record<Claim['kind'], string> = {
-  HoldsAtLeast: 'Holds at least',
-  HoldsExactly: 'Holds exactly',
-  ReceivedPayment: 'Received a payment',
-  ReceivedAtLeastSince: 'Received at least, since',
 }

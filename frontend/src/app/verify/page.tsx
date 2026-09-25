@@ -19,7 +19,7 @@ export default function VerifyPage() {
       </PageHead>
       <Rule />
       <div className="wrap pb-[var(--s-end)] pt-[clamp(40px,4.4vw,64px)]">
-        <VerifierConsole variant="full" />
+        <VerifierConsole />
       </div>
     </>
   )
