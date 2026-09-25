@@ -1,12 +1,13 @@
 // The demo relayer: pays for and sends the demo's Solana transactions with devnet keys held
 // here, so a visitor needs no wallet. It holds the borrower key the demo proof is bound to,
 // and a "stranger" key for the wrong-wallet run. Everything it does is on a public explorer.
-import { PublicKey, SystemProgram } from '@solana/web3.js'
+import { PublicKey } from '@solana/web3.js'
 import { formatUnits } from '@/lib/server/units'
 import {
   bs58, connection, decodePool, ed25519Ix, explain, explorer, keypairFrom, linePda, openLineIx, receiptPda, receiptSubject, send, submitIx, GATE_ID, CREDIT_ID,
 } from '@/lib/server/solana'
-import { clientKey, limited } from '@/lib/server/store'
+import { readJson } from '@/lib/server/http'
+import { clientKey, rateLimit } from '@/lib/server/store'
 import type { CreditLine, GateTransaction } from '@/lib/data/types'
 
 export const dynamic = 'force-dynamic'
@@ -24,9 +25,10 @@ function configured() {
 
 export async function POST(req: Request) {
   if (!configured()) return Response.json({ error: 'the Solana relayer is not configured on this deployment' }, { status: 503 })
-  if (limited(`relay:${clientKey(req)}`, 20, 60_000)) return Response.json({ error: 'slow down' }, { status: 429 })
-  const body = (await req.json().catch(() => null)) as Body | null
-  if (!body) return Response.json({ error: 'bad request' }, { status: 400 })
+  if (await rateLimit(`relay:${clientKey(req)}`, 20, 60_000)) return Response.json({ error: 'slow down' }, { status: 429 })
+  const body = await readJson<Body>(req)
+  if (body instanceof Response) return body
+  if (!body || typeof body !== 'object') return Response.json({ error: 'bad request' }, { status: 400 })
 
   const relayer = keypairFrom(process.env.RELAYER_SECRET_KEY, 'RELAYER_SECRET_KEY')
   const borrower = keypairFrom(process.env.BORROWER_SECRET_KEY, 'BORROWER_SECRET_KEY')
@@ -38,10 +40,15 @@ export async function POST(req: Request) {
     if (typeof a?.message !== 'string' || typeof a.signature !== 'string' || typeof a.attestor !== 'string') {
       return Response.json({ error: 'submit needs an attestation {message, signature, attestor}' }, { status: 400 })
     }
-    const message = Buffer.from(body.attestation.message, 'hex')
-    const signature = Buffer.from(body.attestation.signature, 'hex')
+    const message = Buffer.from(a.message, 'hex')
+    const signature = Buffer.from(a.signature, 'hex')
+    let attestor: PublicKey
+    try {
+      attestor = new PublicKey(a.attestor)
+    } catch {
+      return Response.json({ error: 'malformed attestation: attestor is not a base58 public key' }, { status: 400 })
+    }
     if (message.length !== 139 || signature.length !== 64) return Response.json({ error: 'malformed attestation' }, { status: 400 })
-    const attestor = new PublicKey(body.attestation.attestor)
     // "Flip one byte of the attestation": the claim value, changed after the attestor signed.
     const sent = Buffer.from(message)
     if (body.tamper) sent[110] = sent[110]! ^ 0x01
@@ -65,7 +72,7 @@ export async function POST(req: Request) {
       const why = explain(err)
       const failedAt = /already in use/i.test(why) || /already in use/i.test(String((err as Error).message))
         ? 'Instruction 1 · pof-gate · the receipt for this proof already exists'
-        : body.tamper || /signature|precompile|0x2|custom program error: 0x2/i.test(why)
+        : body.tamper || /signature|precompile|0x2/i.test(why)
           ? 'Instruction 0 · Ed25519SigVerify'
           : 'Instruction 1 · pof-gate'
       const message = failedAt.startsWith('Instruction 0')
@@ -88,9 +95,8 @@ export async function POST(req: Request) {
         return Response.json({ error: 'There is no pof-gate receipt at this address. Submit the attestation first.', failedAt: 'pof-credit · open_line' }, { status: 422 })
       }
       const subject = receiptSubject(receiptAcc.data)
-      // the borrower pays rent for its CreditLine; top it up from the relayer in the same transaction
-      const fund = SystemProgram.transfer({ fromPubkey: relayer.publicKey, toPubkey: who.publicKey, lamports: 5_000_000 })
-      const sig = await send(conn, [fund, openLineIx(pool, who.publicKey, receipt, subject)], [relayer, who])
+      // the relayer pays the fee and the CreditLine's rent; the borrower only signs
+      const sig = await send(conn, [openLineIx(pool, who.publicKey, relayer.publicKey, receipt, subject)], [relayer, who])
       const poolAcc = await conn.getAccountInfo(pool)
       const p = decodePool(poolAcc!.data)
       const line = linePda(subject, who.publicKey)
