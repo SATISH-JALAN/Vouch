@@ -4,7 +4,8 @@
 //! `src/lib/pof/codec.ts`) and this crate can be checked against the same golden vectors.
 
 use crate::{
-    Anchor, Claim, Envelope, Evidence, FORMAT_VERSION, MAGIC_BYTES, MAX_PROOF_BYTES, MAX_PUBLIC_INPUTS, MAX_ZATOSHI,
+    hash::blake2b_256, Anchor, Claim, Envelope, Evidence, FORMAT_VERSION, MAGIC_BYTES, MAX_PROOF_BYTES, MAX_PUBLIC_INPUTS,
+    MAX_TIMESTAMP, MAX_ZATOSHI,
 };
 
 /// Why a file failed to parse. Each variant is a different message in the UI.
@@ -79,7 +80,7 @@ pub(crate) fn encode_head(e: &Envelope) -> Vec<u8> {
     w.0
 }
 
-pub fn encode_body(e: &Envelope) -> Vec<u8> {
+fn encode_body(e: &Envelope) -> Vec<u8> {
     let mut w = Writer(Vec::with_capacity(160 + e.evidence.proof.len() + 32 * e.evidence.public_inputs.len()));
     write_head(&mut w, e);
     w.varint(e.evidence.public_inputs.len() as u64);
@@ -97,7 +98,7 @@ pub fn encode(e: &Envelope) -> Vec<u8> {
     out.extend_from_slice(&MAGIC_BYTES);
     out.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
     out.extend_from_slice(&body);
-    out.extend_from_slice(blake2b_simd::Params::new().hash_length(32).hash(&body).as_bytes());
+    out.extend_from_slice(&blake2b_256(&body));
     out
 }
 
@@ -124,6 +125,11 @@ impl<'a> Reader<'a> {
             }
             n |= chunk << (7 * i);
             if byte & 0x80 == 0 {
+                // A zero last group pads a shorter encoding of the same value. Refused so that
+                // decoding is injective: one proof, one byte string, one checksum.
+                if byte == 0 && i > 0 {
+                    return Err("non-canonical varint".into());
+                }
                 return Ok(n);
             }
         }
@@ -139,11 +145,16 @@ impl<'a> Reader<'a> {
         self.o = end;
         Ok(out)
     }
-    fn bytes(&mut self, max: usize) -> Result<Vec<u8>, String> {
-        let n = self.varint()? as usize;
-        if n > max {
-            return Err(format!("field of {n} bytes exceeds the {max}-byte limit"));
+    /// A length prefix, bounded in u64 before narrowing: on wasm32 `as usize` would wrap 2^32 + k to k.
+    fn len(&mut self, max: usize, too_long: impl FnOnce(u64) -> String) -> Result<usize, String> {
+        let n = self.varint()?;
+        if n > max as u64 {
+            return Err(too_long(n));
         }
+        Ok(n as usize)
+    }
+    fn bytes(&mut self, max: usize) -> Result<Vec<u8>, String> {
+        let n = self.len(max, |n| format!("field of {n} bytes exceeds the {max}-byte limit"))?;
         let end = self.o.checked_add(n).filter(|&e| e <= self.b.len()).ok_or("unexpected end of body")?;
         let out = self.b[self.o..end].to_vec();
         self.o = end;
@@ -179,11 +190,14 @@ fn read_body(body: &[u8]) -> Result<Envelope, String> {
     let anchor = Anchor { height: r.u32()?, nc_root: r.fixed::<32>()?, nf_root: r.fixed::<32>()? };
     let issued_at = r.varint()?;
     let expires_at = r.varint()?;
-    let revocation = r.fixed::<16>()?;
-    let n = r.varint()? as usize;
-    if n > MAX_PUBLIC_INPUTS {
-        return Err("too many public inputs".into());
+    if issued_at.max(expires_at) > MAX_TIMESTAMP {
+        return Err("timestamp exceeds 2^53 - 1".into());
     }
+    if issued_at > expires_at {
+        return Err("issued after it expires".into());
+    }
+    let revocation = r.fixed::<16>()?;
+    let n = r.len(MAX_PUBLIC_INPUTS, |_| "too many public inputs".into())?;
     let mut public_inputs = Vec::with_capacity(n);
     for _ in 0..n {
         public_inputs.push(r.fixed::<32>()?);
@@ -220,7 +234,7 @@ pub fn decode(file: &[u8]) -> Result<(Envelope, [u8; 32]), DecodeError> {
     let body = &file[6..file.len() - 32];
     let mut checksum = [0u8; 32];
     checksum.copy_from_slice(&file[file.len() - 32..]);
-    if blake2b_simd::Params::new().hash_length(32).hash(body).as_bytes() != checksum {
+    if blake2b_256(body) != checksum {
         return Err(DecodeError::Checksum);
     }
     let env = read_body(body).map_err(DecodeError::Body)?;
@@ -317,6 +331,55 @@ mod tests {
         let mut bad = f.clone();
         bad[100] ^= 1;
         assert_eq!(decode(&bad).unwrap_err(), DecodeError::Checksum);
+    }
+
+    fn body_err(e: &Envelope) -> DecodeError {
+        decode(&encode(e)).unwrap_err()
+    }
+
+    #[test]
+    fn varints_are_canonical() {
+        let read = |b: &[u8]| Reader { b, o: 0 }.varint();
+        assert_eq!(read(&[0x00]), Ok(0));
+        assert_eq!(read(&[0x80, 0x01]), Ok(128));
+        for padded in [&[0x80, 0x00][..], &[0x81, 0x00], &[0xff, 0x80, 0x00]] {
+            assert_eq!(read(padded), Err("non-canonical varint".into()), "{padded:02x?}");
+        }
+        for n in [0, 1, 127, 128, 300, u32::MAX as u64, u64::MAX] {
+            let mut w = Writer(vec![]);
+            w.varint(n);
+            assert_eq!(read(&w.0), Ok(n));
+        }
+
+        // The same proof with its claim tag padded to two bytes is refused, not a second valid file.
+        let f = encode(&sample(Claim::HoldsAtLeast { zatoshi: 12_500_000 }));
+        let body = [&[0x80u8, 0x00][..], &f[7..f.len() - 32]].concat();
+        let padded = [&f[..6], &body[..], &blake2b_256(&body)[..]].concat();
+        assert_eq!(decode(&padded).unwrap_err(), DecodeError::Body("non-canonical varint".into()));
+    }
+
+    #[test]
+    fn lengths_are_bounded_before_narrowing() {
+        let mut w = Writer(vec![]);
+        w.varint((1 << 32) + 5);
+        assert!(Reader { b: &w.0, o: 0 }.len(16, |n| n.to_string()).is_err());
+        let mut e = sample(Claim::HoldsAtLeast { zatoshi: 12_500_000 });
+        e.evidence.public_inputs = vec![[0; 32]; MAX_PUBLIC_INPUTS + 1];
+        assert_eq!(body_err(&e), DecodeError::Body("too many public inputs".into()));
+    }
+
+    #[test]
+    fn timestamps_are_bounded_and_ordered() {
+        let e = sample(Claim::HoldsAtLeast { zatoshi: 12_500_000 });
+        let mut late = e.clone();
+        late.expires_at = MAX_TIMESTAMP + 1;
+        assert_eq!(body_err(&late), DecodeError::Body("timestamp exceeds 2^53 - 1".into()));
+        let mut backwards = e.clone();
+        backwards.issued_at = e.expires_at + 1;
+        assert_eq!(body_err(&backwards), DecodeError::Body("issued after it expires".into()));
+        let mut edge = e;
+        (edge.issued_at, edge.expires_at) = (MAX_TIMESTAMP, MAX_TIMESTAMP);
+        assert_eq!(decode(&encode(&edge)).unwrap().0, edge);
     }
 
     #[test]

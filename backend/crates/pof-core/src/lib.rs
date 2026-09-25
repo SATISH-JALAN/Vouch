@@ -14,7 +14,7 @@
 mod codec;
 mod hash;
 
-pub use codec::{decode, encode, encode_body, from_base64url, to_base64url, DecodeError};
+pub use codec::{decode, encode, from_base64url, to_base64url, DecodeError};
 pub use hash::{audience_hash, revocation_tag, signing_message, statement_hash, subject_hash};
 
 use serde::{Deserialize, Serialize};
@@ -36,6 +36,10 @@ pub const MAX_PROOF_BYTES: usize = 16 * 1024;
 
 /// Total supply bound, in zatoshi. No claim may exceed it.
 pub const MAX_ZATOSHI: u64 = 21_000_000 * 100_000_000;
+
+/// Latest issue or expiry time, in unix seconds: 2^53 − 1, the largest integer that a
+/// JavaScript number, JSON and the gate's i64 all carry exactly.
+pub const MAX_TIMESTAMP: u64 = (1 << 53) - 1;
 
 /// The single statement a proof asserts. Tags are wire-stable.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
