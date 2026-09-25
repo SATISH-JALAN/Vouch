@@ -1,9 +1,9 @@
-// WASM ≡ native: run every committed vector through the WebAssembly verifier and compare
-// with fixtures/expected.json — the same list the native test (pof-verify/tests) checks.
+// WASM ≡ native: run every committed vector through the WebAssembly verifier the site serves
+// (frontend/public/wasm) and compare with fixtures/expected.json — the same list the native
+// test (pof-verify/tests) checks.
 import { readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
-const require = createRequire(import.meta.url)
-const wasm = require('../backend/target/wasm-node/pof_wasm.js')
+import * as wasm from '../frontend/public/wasm/pof_wasm.js'
+wasm.initSync({ module: readFileSync(new URL('../frontend/public/wasm/pof_wasm_bg.wasm', import.meta.url)) })
 const dir = new URL('../fixtures/', import.meta.url)
 const anchors = readFileSync(new URL('anchors.demo.json', dir), 'utf8')
 const revoked = JSON.stringify(JSON.parse(readFileSync(new URL('revocations.demo.json', dir), 'utf8')).secrets)

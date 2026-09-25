@@ -4,6 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p frontend/public/proofs frontend/src/data
+rm -f frontend/public/proofs/*.pof # a vector dropped from fixtures/ must not linger on the site
 cp fixtures/proofs/*.pof frontend/public/proofs/
 node -e '
 const fs = require("fs")
