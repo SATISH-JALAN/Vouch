@@ -25,7 +25,7 @@ Vouch is built on open-source Zcash and Solana work. This file lists what we dep
 
 ## Vendored and modified
 
-Each vendored crate keeps its original licence files and notices. Every change is marked `VOUCH MODIFICATION` or `VOUCH` in the source and listed in the crate's `VOUCH-MODIFICATIONS.md`.
+Each vendored crate keeps its original licence files and notices. The crates.io package of `voting-crypto-deps` ships no licence text, so its `LICENSE-MIT` and `LICENSE-APACHE` are the ones at the root of its upstream repository, `valargroup/voting-circuits`. Every change is marked `VOUCH MODIFICATION` or `VOUCH` in the source and listed in the crate's `VOUCH-MODIFICATIONS.md`.
 
 | Vendored crate | Change | Why |
 | --- | --- | --- |
