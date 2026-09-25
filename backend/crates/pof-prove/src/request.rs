@@ -2,12 +2,17 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Largest `respond_by` both sides represent exactly: JavaScript's `Number.MAX_SAFE_INTEGER`.
+pub const MAX_RESPOND_BY: u64 = (1 << 53) - 1;
+
+/// Unknown fields are refused, and an explicit JSON `null` in an optional field reads as
+/// absent, exactly as on the web.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProofRequest {
     pub v: u8,
-    /// Random request id, hex. Lets a verifier match a response to its request.
-    #[serde(default)]
+    /// Random request id, 16 lowercase hex. Lets a verifier match a response to its request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     pub claim: String,
     /// Zatoshi as a decimal string, so large values survive JSON.
@@ -16,10 +21,10 @@ pub struct ProofRequest {
     pub audience: String,
     pub expiry_days: u32,
     /// Unix seconds the verifier wants an answer by.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub respond_by: Option<u64>,
     /// "solana" when the proof must be bound to the holder's Solana account (on-chain audiences).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bind: Option<String>,
 }
 
@@ -28,8 +33,13 @@ mod dec {
     pub fn serialize<S: Serializer>(v: &u64, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_str(&v.to_string())
     }
+    /// ASCII digits only: `u64::from_str` alone would also take a leading `+`.
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
-        String::deserialize(d)?.parse().map_err(D::Error::custom)
+        let s = String::deserialize(d)?;
+        if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(D::Error::custom("zatoshi must be a decimal string"));
+        }
+        s.parse().map_err(D::Error::custom)
     }
 }
 
@@ -43,16 +53,34 @@ pub enum RequestError {
     Invalid(&'static str),
 }
 
+/// The problem with an audience identifier, if any. Printable ASCII only, so trimming and
+/// lower-casing (inside the audience hash) mean exactly the same thing here and in JavaScript.
+pub fn audience_problem(id: &str) -> Option<&'static str> {
+    if !id.bytes().all(|b| (0x20..=0x7e).contains(&b)) {
+        return Some("the audience may use only printable ASCII: letters, digits, spaces and punctuation");
+    }
+    id.trim().is_empty().then_some("the request names no audience")
+}
+
 impl ProofRequest {
+    /// The `r=` value of a request link. Accepts exactly what `decodeRequestDetailed` in
+    /// `frontend/src/lib/request.ts` accepts; `fixtures/requests.json` holds the cases.
     pub fn decode(encoded: &str) -> Result<Self, RequestError> {
-        let bytes = pof_core::from_base64url(encoded).map_err(|_| RequestError::Encoding)?;
-        let r: ProofRequest = serde_json::from_slice(&bytes).map_err(|e| RequestError::Json(e.to_string()))?;
+        // Links wrapped by mail clients pick up whitespace; anything else outside base64url is damage.
+        let clean: String = encoded.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+        if !clean.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+            return Err(RequestError::Encoding);
+        }
+        let bytes = pof_core::from_base64url(&clean).map_err(|_| RequestError::Encoding)?;
+        // Through a Value, so duplicate keys resolve last-wins as in JSON.parse, and only an
+        // object is a request (serde would also build the struct from an array).
+        let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| RequestError::Json(e.to_string()))?;
+        if !value.is_object() {
+            return Err(RequestError::Json("a request is a JSON object".into()));
+        }
+        let r: ProofRequest = serde_json::from_value(value).map_err(|e| RequestError::Json(e.to_string()))?;
         r.validate()?;
         Ok(r)
-    }
-
-    pub fn encode(&self) -> String {
-        pof_core::to_base64url(serde_json::to_string(self).expect("serialisable").as_bytes())
     }
 
     pub fn validate(&self) -> Result<(), RequestError> {
@@ -68,11 +96,20 @@ impl ProofRequest {
         if !self.zatoshi.is_multiple_of(pof_core::ZAT_PER_UNIT) {
             return Err(RequestError::Invalid("the threshold must be a multiple of 0.125 ZEC"));
         }
-        if self.audience.trim().is_empty() {
-            return Err(RequestError::Invalid("the request names no audience"));
+        if let Some(p) = audience_problem(&self.audience) {
+            return Err(RequestError::Invalid(p));
         }
         if !(1..=365).contains(&self.expiry_days) {
             return Err(RequestError::Invalid("expiry must be 1–365 days"));
+        }
+        if self.id.as_ref().is_some_and(|id| id.len() != 16 || !id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))) {
+            return Err(RequestError::Invalid("malformed request id"));
+        }
+        if self.respond_by.is_some_and(|t| !(1..=MAX_RESPOND_BY).contains(&t)) {
+            return Err(RequestError::Invalid("malformed response deadline"));
+        }
+        if self.bind.as_deref().is_some_and(|b| b != "solana") {
+            return Err(RequestError::Invalid("unknown binding"));
         }
         Ok(())
     }
@@ -105,5 +142,35 @@ pub fn zec(z: u64) -> String {
         w
     } else {
         format!("{w}.{frac}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The same links `frontend/scripts/verify-fixtures.ts` checks: both sides must agree.
+    #[test]
+    fn shared_request_vectors() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../fixtures/requests.json");
+        let file: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let cases = file["cases"].as_array().unwrap();
+        assert!(cases.len() > 50);
+        for c in cases {
+            let (name, r, ok) = (c["name"].as_str().unwrap(), c["r"].as_str().unwrap(), c["ok"].as_bool().unwrap());
+            if let Some(json) = c["json"].as_str() {
+                assert_eq!(pof_core::from_base64url(r).unwrap(), json.as_bytes(), "{name}: json and r disagree");
+            }
+            let got = ProofRequest::decode(r);
+            assert_eq!(got.is_ok(), ok, "{name}: {got:?}");
+        }
+    }
+
+    #[test]
+    fn serialises_without_absent_fields() {
+        let r = ProofRequest { v: 1, id: None, claim: "HoldsAtLeast".into(), zatoshi: 12_500_000, audience: "acme".into(), expiry_days: 7, respond_by: None, bind: None };
+        let json = serde_json::to_string(&r).unwrap();
+        assert_eq!(json, r#"{"v":1,"claim":"HoldsAtLeast","zatoshi":"12500000","audience":"acme","expiryDays":7}"#);
+        assert_eq!(ProofRequest::decode(&pof_core::to_base64url(json.as_bytes())).unwrap(), r);
     }
 }
