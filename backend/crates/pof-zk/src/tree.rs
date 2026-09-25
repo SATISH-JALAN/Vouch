@@ -26,7 +26,11 @@ impl NoteTree {
         let mut levels = Vec::with_capacity(DEPTH);
         for h in 0..DEPTH {
             let lvl = Level::from(h as u8);
-            if level.is_empty() || level.len() % 2 == 1 {
+            // Pad to an even, non-zero length: an empty tree still has a (empty) root.
+            if level.is_empty() {
+                level.push(MerkleHashOrchard::empty_root(lvl));
+            }
+            if level.len() % 2 == 1 {
                 level.push(MerkleHashOrchard::empty_root(lvl));
             }
             let next = combine_level(lvl, &level);
@@ -69,4 +73,17 @@ fn combine_level(lvl: Level, level: &[MerkleHashOrchard]) -> Vec<MerkleHashOrcha
             .collect();
     }
     MerkleHashOrchard::combine_batch(lvl, level.chunks(2).map(|p| (&p[0], &p[1])))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_tree_has_the_empty_root() {
+        let t = NoteTree::from_cmx(&[]).unwrap();
+        assert_eq!(t.size(), 0);
+        assert_eq!(t.root(), MerkleHashOrchard::empty_root(Level::from(DEPTH as u8)).to_bytes());
+        assert!(t.path(0).is_none());
+    }
 }

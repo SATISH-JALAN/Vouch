@@ -1,17 +1,18 @@
 //! Holder-side proving. Never compiled into the verifier or the WASM build.
 
-use pof_core::{signing_message, Claim, Envelope, ZAT_PER_UNIT};
+use pof_core::{signing_message, Envelope, ZAT_PER_UNIT};
 use voting_circuits::delegation::{build_delegation_bundle, create_delegation_proof, ImtProvider, RealNoteInput};
-use voting_circuits::ff::{Field, PrimeField};
+use voting_circuits::ff::Field;
 use voting_circuits::rand::rngs::OsRng;
 use voting_crypto_deps::orchard::{
     keys::{FullViewingKey, Scope, SpendAuthorizingKey, SpendValidatingKey, SpendingKey},
+    note::ExtractedNoteCommitment,
     tree::MerklePath,
     Note,
 };
 use voting_crypto_deps::pasta_curves::pallas;
 
-use crate::{base_from_bytes, base_to_bytes, round_id};
+use crate::{base_from_bytes, base_to_bytes, min_ballots, round_id, ZkError};
 
 /// One of the holder's unspent Ironwood notes, with its path to the anchor's `nc_root`.
 #[derive(Debug)]
@@ -35,10 +36,23 @@ pub enum ProveError {
     AnchorMismatch,
     #[error("a note's nullifier is already spent at this anchor")]
     Spent,
+    #[error("the same note is selected more than once")]
+    DuplicateNote,
     #[error("building the circuit failed: {0}")]
     Build(String),
     #[error("proving failed: {0}")]
     Prove(String),
+}
+
+impl From<ZkError> for ProveError {
+    /// The claim checks the prover shares with the verifier ([`min_ballots`]).
+    fn from(e: ZkError) -> Self {
+        match e {
+            ZkError::UnsupportedClaim => ProveError::UnsupportedClaim,
+            ZkError::NotWholeUnits => ProveError::NotWholeUnits,
+            other => ProveError::Build(other.to_string()),
+        }
+    }
 }
 
 /// Fill `env.evidence` with a real proof that `notes` (owned by `sk`, unspent at the anchor)
@@ -50,27 +64,36 @@ pub fn prove_holding(
     imt: &impl ImtProvider,
     env: &mut Envelope,
 ) -> Result<(), ProveError> {
-    let min = match env.claim {
-        Claim::HoldsAtLeast { .. } => env.claim.min_units().ok_or(ProveError::NotWholeUnits)?,
-        _ => return Err(ProveError::UnsupportedClaim),
-    };
+    let min = min_ballots(&env.claim)?;
     if notes.is_empty() || notes.len() > 5 {
         return Err(ProveError::NoteCount(notes.len()));
     }
     let have: u64 = notes.iter().map(|n| n.note.value().inner()).sum();
-    if have / ZAT_PER_UNIT < min {
-        return Err(ProveError::Insufficient { have, need: min * ZAT_PER_UNIT });
+    // The circuit also needs at least one ballot (0.125 ZEC), whatever the claim.
+    let need = env.claim.zatoshi().max(ZAT_PER_UNIT);
+    if have < need {
+        return Err(ProveError::Insufficient { have, need });
     }
     let nc_root = base_from_bytes(&env.anchor.nc_root).map_err(|_| ProveError::AnchorMismatch)?;
     if base_to_bytes(&imt.root()) != env.anchor.nf_root {
         return Err(ProveError::AnchorMismatch);
     }
 
+    // Everything the circuit checks per note is checked here too, so a bad input fails with a
+    // reason instead of producing a proof that will never verify.
     let fvk = FullViewingKey::from(sk);
     let mut rng = OsRng;
     let mut real = Vec::with_capacity(notes.len());
+    let mut seen = Vec::with_capacity(notes.len());
     for held in notes {
         let nf = held.note.nullifier(&fvk);
+        if seen.contains(&nf) {
+            return Err(ProveError::DuplicateNote);
+        }
+        seen.push(nf);
+        if held.merkle_path.root(ExtractedNoteCommitment::from(held.note.commitment())).to_bytes() != env.anchor.nc_root {
+            return Err(ProveError::AnchorMismatch);
+        }
         let imt_proof = imt.non_membership_proof(nf.inner()).map_err(|_| ProveError::Spent)?;
         real.push(RealNoteInput { note: held.note, fvk: fvk.clone(), merkle_path: held.merkle_path, imt_proof, scope: held.scope });
     }
@@ -93,11 +116,15 @@ pub fn prove_holding(
     let proof = create_delegation_proof(bundle.circuit, &instance).map_err(|e| ProveError::Prove(e.to_string()))?;
 
     let rk = SpendValidatingKey::from(fvk.clone()).randomize(&alpha);
-    let mut inputs = vec![instance.nf_signed.inner().to_repr(), <[u8; 32]>::from(&rk)];
-    inputs.push(base_to_bytes(&instance.cmx_new));
-    inputs.push(base_to_bytes(&instance.van_comm));
-    inputs.extend(instance.gov_null.iter().map(base_to_bytes));
-    env.evidence.public_inputs = inputs;
+    env.evidence.public_inputs = [
+        base_to_bytes(&instance.nf_signed.inner()),
+        <[u8; 32]>::from(&rk),
+        base_to_bytes(&instance.cmx_new),
+        base_to_bytes(&instance.van_comm),
+    ]
+    .into_iter()
+    .chain(instance.gov_null.iter().map(base_to_bytes))
+    .collect();
     env.evidence.proof = proof;
 
     let rsk = SpendAuthorizingKey::from(sk).randomize(&alpha);
