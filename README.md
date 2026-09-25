@@ -67,15 +67,16 @@ The whole stack (validator with both programs, attestor, demo holder, site in LI
 ```bash
 (cd backend/solana && anchor build)
 ./scripts/dev-stack.sh                       # open http://localhost:3000/demo
-SITE=http://localhost:3000 node scripts/e2e.mjs   # 17 end-to-end checks, in another shell
+SITE=http://localhost:3000 node scripts/e2e.mjs   # 18 end-to-end checks, in another shell
 ```
 
 Prove with your own wallet on mainnet:
 
 ```bash
 cd backend
-cargo run --release -p pof-anchor -- scan --out target/snapshots \
-  --table ../fixtures/anchors.mainnet.json                         # snapshot + anchor from lightwalletd
+cargo run --release -p pof-anchor -- scan    # lightwalletd → target/snapshots/mainnet-<h>.vsnp + ../fixtures/anchors.mainnet.json
+../scripts/sync-fixtures.sh                     # copy the anchor into the site's table
+# commit, then redeploy the attestor and the site (see Deploy): each trusts only the anchors it shipped with
 cargo run --release -p pof-prove -- prove \
   --request '<link from /request>' --snapshot target/snapshots/mainnet-<h>.vsnp \
   --seed-file ~/seed.txt --out proof.pof
@@ -86,10 +87,10 @@ cargo run --release -p pof-prove -- prove \
 | Command | What it checks |
 | --- | --- |
 | `cargo test --release --workspace` (in `backend/`) | Format, verifier on every vector, embedded verifying key, IMT, the no-network invariants |
-| `cargo test --release -p pof-zk --features prove -- --ignored` | Real proofs: threshold round trip and every tampering case |
+| `cargo test --release -p pof-zk --features prove --test roundtrip -- --ignored` | Real proofs: threshold round trip and every tampering case |
 | `cargo test --release -p pof-prove --test wallet -- --ignored` | Seed → note discovery → proof → `Valid` |
 | `cargo test -p pof-solana-tests` (in `backend/solana/`) | The programs against LiteSVM, including the attacks |
-| `pnpm test:fixtures` · `pnpm test:wasm` (in `frontend/`) | TypeScript codec ≡ Rust encoder; WASM ≡ native verdicts |
+| `pnpm test:fixtures` · `pnpm test:wasm` (in `frontend/`) | TypeScript codec ≡ Rust encoder; the committed WASM the site serves ≡ native verdicts |
 | `pnpm e2e` | The full path through the site's API, with every breaker |
 
 CI runs all of these except `pnpm e2e`, which needs a running stack ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
@@ -97,7 +98,7 @@ CI runs all of these except `pnpm e2e`, which needs a running stack ([.github/wo
 ## Deploy
 
 - **Attestor:** [backend/Dockerfile](backend/Dockerfile) and [backend/fly.toml](backend/fly.toml) (commands are in the file header).
-- **Programs:** `ATTESTORS=<attestor pubkey> ./scripts/deploy-devnet.sh`. It deploys under the fixed program ids, allowlists the attestor, creates the pool and prints the site's environment.
+- **Programs:** `POF_ATTEST_URL=https://<attestor> [ATTESTORS=<b58,…>] ./scripts/deploy-devnet.sh`. It rebuilds and deploys under the fixed program ids (the admin keeps the upgrade authority, which `initialize` requires), copies the IDLs, allowlists the attestor (read from `/v1/pubkey` when `ATTESTORS` is unset), creates the pool with the mint kept in `backend/solana/keys/mint.json`, and prints the site's environment.
 - **Site:** Vercel, root `frontend/`, with the variables in [frontend/.env.example](frontend/.env.example).
 
 ## Status: not production ready

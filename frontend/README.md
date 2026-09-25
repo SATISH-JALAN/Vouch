@@ -1,6 +1,6 @@
 # Vouch — site
 
-Next.js 15 (App Router) · React 19 · Tailwind v4 · GSAP + Lenis · zustand. pnpm only.
+Next.js 15 (App Router) · React 19 · Tailwind v4 · GSAP + Lenis · zustand. pnpm only, Node 22.18+ (the scripts run `.ts` files directly).
 
 ```bash
 pnpm install
@@ -8,7 +8,7 @@ pnpm dev              # http://localhost:3000
 pnpm build
 pnpm typecheck
 pnpm test:fixtures    # TypeScript codec ≡ Rust encoder on every committed proof, plus request links
-pnpm test:wasm        # WASM verifier ≡ native verdicts (needs ../scripts/build-wasm.sh once)
+pnpm test:wasm        # the WASM verifier in public/wasm ≡ native verdicts
 pnpm e2e              # the full path through this site's API (needs the stack: ../scripts/dev-stack.sh)
 ```
 
@@ -27,7 +27,7 @@ pnpm e2e              # the full path through this site's API (needs the stack: 
 
 - **In the browser:** `pof-verify` compiled to WASM (`public/wasm`, built by `../scripts/build-wasm.sh`), loaded on the first verification. Warm-up takes about 0.3 s, and a verification about 100 ms. The TypeScript codec in `src/lib/pof` only parses the file, for display. Verdicts always come from the WASM.
 - **API routes** (`src/app/api`):
-  - `anchors`, `anchor/[height]`: the trusted anchor table (`src/data/anchors.json`).
+  - `anchors`: the trusted anchor table (`src/data/anchors.json`).
   - `revocations`: the public revocation list (GET; POST `{secret}` to revoke).
   - `attest`, `demo-prove`: proxies to `pof-attest`.
   - `relay`: builds and pays for the demo's Solana transactions.
@@ -39,7 +39,7 @@ Configuration is in [.env.example](.env.example). Every variable is optional.
 
 ## Data that comes from the Rust side
 
-`../scripts/sync-fixtures.sh` copies `../fixtures/proofs/*.pof` → `public/proofs`, merges the anchor tables → `src/data/anchors.json`, and copies the demo revocation list. The IDLs in `src/data/idl` come from `backend/solana/target/idl`. Rebuild the WASM before `pnpm build` whenever `backend/crates` changes.
+`../scripts/sync-fixtures.sh` copies `../fixtures/proofs/*.pof` → `public/proofs`, merges the anchor tables → `src/data/anchors.json`, and copies the demo revocation list. It deletes `public/proofs/*.pof` first, so a vector dropped from `fixtures/` leaves the site too, and CI fails if the committed copies drift from `fixtures/`. The IDLs in `src/data/idl` come from `backend/solana/target/idl`. Rebuild the WASM (`../scripts/build-wasm.sh`) and commit `public/wasm` whenever `backend/crates` changes: Vercel serves the committed build, and CI runs `pnpm test:wasm` against it.
 
 ## Before submission
 
@@ -48,7 +48,7 @@ Configuration is in [.env.example](.env.example). Every variable is optional.
 
 ## Type and visuals
 
-Fonts: Instrument Serif and Geist Mono via `next/font/google`. Switzer (Fontshare, ITF FFL) is self-hosted in `src/fonts`, so the fallback is size-matched (no CLS). `src/og-fonts` holds TTFs for the OG renderer.
+Fonts: Instrument Serif, Fraunces and Geist Mono via `next/font/google`, and Geist Pixel (Square) from the `geist` package. Switzer (Fontshare, ITF FFL) is self-hosted in `src/fonts`, so the fallback is size-matched (no CLS). `src/og-fonts` holds TTFs for the OG renderer.
 
 `public/visuals/` holds the web-ready paintings and hero loops (WebP, MP4/WebM without audio). `visuals-src/` holds the original exports and is not served.
 
