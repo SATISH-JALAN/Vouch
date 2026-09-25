@@ -3,7 +3,7 @@ import { cx } from './primitives'
 
 /**
  * The signature component. A solid bar over text.
- *  - `reveal`: the bar can collapse (from the right) when a parent runs useRedactReveal.
+ *  - `reveal`: the bar can collapse (from the right) when a parent tweens its [data-reveal] bar.
  *    Without JS or under reduced motion it renders already open.
  *  - no `reveal`: permanent. It never receives a tween. It is not disabled; it is final.
  *
