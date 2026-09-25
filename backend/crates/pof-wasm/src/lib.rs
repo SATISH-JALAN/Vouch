@@ -37,12 +37,6 @@ pub fn verify(bytes: &[u8], audience: &str, now_sec: u64, anchors_json: &str, re
     serde_json::to_string(&result).map_err(|e| JsError::new(&e.to_string()))
 }
 
-/// blake2b audience hash, so the request builder shows exactly what the verifier compares.
-#[wasm_bindgen(js_name = audienceHash)]
-pub fn audience_hash(id: &str) -> String {
-    pof_core::to_base64url(&pof_core::audience_hash(id))
-}
-
 #[wasm_bindgen]
 pub fn version() -> String {
     pof_verify::VERIFIER_VERSION.to_string()

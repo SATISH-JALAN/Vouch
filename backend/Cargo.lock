@@ -265,6 +265,7 @@ dependencies = [
  "bitcoin_hashes",
  "serde",
  "unicode-normalization",
+ "zeroize",
 ]
 
 [[package]]
@@ -2173,7 +2174,6 @@ dependencies = [
  "blake2b_simd",
  "hex",
  "serde",
- "serde_json",
  "thiserror",
 ]
 
@@ -2200,6 +2200,7 @@ dependencies = [
  "voting-circuits",
  "voting-crypto-deps",
  "zcash_note_encryption",
+ "zeroize",
  "zip32",
 ]
 
@@ -2223,7 +2224,6 @@ dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.3.4",
  "getrandom 0.4.3",
- "pof-core",
  "pof-verify",
  "serde_json",
  "wasm-bindgen",
@@ -2233,6 +2233,7 @@ dependencies = [
 name = "pof-zk"
 version = "0.1.0"
 dependencies = [
+ "blake2b_simd",
  "incrementalmerkletree",
  "pof-core",
  "rayon",
