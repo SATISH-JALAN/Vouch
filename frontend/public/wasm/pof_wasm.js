@@ -1,24 +1,4 @@
 /**
- * blake2b audience hash, so the request builder shows exactly what the verifier compares.
- * @param {string} id
- * @returns {string}
- */
-export function audienceHash(id) {
-    let deferred2_0;
-    let deferred2_1;
-    try {
-        const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.audienceHash(ptr0, len0);
-        deferred2_0 = ret[0];
-        deferred2_1 = ret[1];
-        return getStringFromWasm0(ret[0], ret[1]);
-    } finally {
-        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
-    }
-}
-
-/**
  * Verify a proof. `bytes` is the binary `.pof` or its base64url text.
  * `anchors_json`: `[{network,height,ncRoot,nfRoot}]`; `revoked_json`: `["hex secret", …]`.
  * Returns the JSON projection of `VerificationResult`.

@@ -2,14 +2,17 @@
   "name": "frontend",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test:fixtures": "node --no-warnings scripts/verify-fixtures.ts",
-    "test:wasm": "node ../scripts/verify-fixtures-wasm.mjs",
-    "e2e": "node ../scripts/e2e.mjs",
+    "test:wasm": "node --no-warnings ../scripts/verify-fixtures-wasm.mjs",
+    "e2e": "node --no-warnings ../scripts/e2e.mjs",
     "solana:setup": "node --no-warnings scripts/solana-setup.ts"
   },
   "dependencies": {
