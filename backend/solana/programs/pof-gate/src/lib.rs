@@ -155,13 +155,14 @@ pub mod pof_gate {
     }
 
     /// Called by a consumer program (by CPI) to spend a receipt exactly once. The beneficiary
-    /// must sign, so nobody can burn someone else's receipt, and the consumer is recorded.
+    /// must sign, so nobody can burn someone else's receipt. The consumer program must sign too,
+    /// through its `[b"consumer"]` PDA, so the program recorded in `consumed_by` is the one that called.
     pub fn mark_consumed(ctx: Context<MarkConsumed>) -> Result<()> {
         let r = &mut ctx.accounts.receipt;
         require!(!r.consumed, GateError::AlreadyConsumed);
         require_keys_eq!(r.beneficiary, ctx.accounts.beneficiary.key(), GateError::WrongBeneficiary);
         r.consumed = true;
-        r.consumed_by = ctx.accounts.consumer.key();
+        r.consumed_by = ctx.accounts.consumer_program.key();
         emit!(ReceiptConsumed { subject: r.subject, consumer: r.consumed_by });
         Ok(())
     }
@@ -180,7 +181,7 @@ fn validate_set(attestors: &[Pubkey], threshold: u8) -> Result<()> {
 #[derive(InitSpace)]
 pub struct Config {
     pub admin: Pubkey,
-    #[max_len(8)]
+    #[max_len(MAX_ATTESTORS)]
     pub attestors: Vec<Pubkey>,
     pub threshold: u8,
     pub max_age_slots: u64,
@@ -204,6 +205,7 @@ pub struct ClaimReceipt {
     pub signers: u8,
     pub created_slot: u64,
     pub consumed: bool,
+    /// The consumer program that spent it.
     pub consumed_by: Pubkey,
     pub bump: u8,
 }
@@ -212,8 +214,14 @@ pub struct ClaimReceipt {
 pub struct Initialize<'info> {
     #[account(init, payer = admin, space = 8 + Config::INIT_SPACE, seeds = [b"config"], bump)]
     pub config: Account<'info, Config>,
+    /// Must be the program's upgrade authority: otherwise anyone could create the config first
+    /// and make themselves admin.
     #[account(mut)]
     pub admin: Signer<'info>,
+    #[account(constraint = program.programdata_address()? == Some(program_data.key()) @ GateError::NotUpgradeAuthority)]
+    pub program: Program<'info, program::PofGate>,
+    #[account(constraint = program_data.upgrade_authority_address == Some(admin.key()) @ GateError::NotUpgradeAuthority)]
+    pub program_data: Account<'info, ProgramData>,
     pub system_program: Program<'info, System>,
 }
 
@@ -250,8 +258,13 @@ pub struct MarkConsumed<'info> {
     #[account(mut, seeds = [b"receipt", receipt.subject.as_ref()], bump = receipt.bump)]
     pub receipt: Account<'info, ClaimReceipt>,
     pub beneficiary: Signer<'info>,
-    /// The consumer program's authority PDA, signing via invoke_signed. Recorded on the receipt.
+    /// `[b"consumer"]` under `consumer_program`. Only that program can sign for it (invoke_signed),
+    /// so this signature proves which program is consuming.
+    #[account(seeds = [b"consumer"], bump, seeds::program = consumer_program.key())]
     pub consumer: Signer<'info>,
+    /// CHECK: any program; the PDA signature above binds it to the caller. Recorded as consumed_by.
+    #[account(executable)]
+    pub consumer_program: UncheckedAccount<'info>,
 }
 
 #[event]
@@ -304,4 +317,6 @@ pub enum GateError {
     BadAttestorSet,
     #[msg("the subject argument does not match the attestation")]
     SubjectMismatch,
+    #[msg("only the program's upgrade authority can initialize it")]
+    NotUpgradeAuthority,
 }
