@@ -6,7 +6,7 @@ import { DEMO_AUDIENCE, DEMO_THRESHOLD_ZAT, INSTRUCTIONS_SYSVAR } from '@/lib/da
 import { fetchPreset, verify } from '@/lib/data/verifier'
 import { attest as liveAttest, demoProve, relayBorrower, relayOpenLine, relaySubmit, serviceStatus } from '@/lib/data/services'
 import * as sim from '@/lib/data/simulated'
-import { formatDate, formatInt, formatZec } from '@/lib/format'
+import { formatDate, formatInt, formatZecExact } from '@/lib/format'
 import { fromBase64Url, fromHex, toBase58, toBase64Url } from '@/lib/pof/bytes'
 import { isUnbound, reseal } from '@/lib/pof/codec'
 import { Chip, cx, TrustNote } from '@/components/ui/primitives'
@@ -19,6 +19,8 @@ type StepId = 'proof' | 'attest' | 'tx' | 'line'
 type Mode = 'live' | 'sim'
 
 interface State {
+  /** The mode this run started in. Every step of one run uses it, whatever the page learns later. */
+  mode?: Mode
   proofB64?: string
   proof?: VerificationResult
   attestation?: Attestation
@@ -50,19 +52,28 @@ export function GateDemo() {
   const [attestorDown, setAttestorDown] = useState(false)
   const [busy, setBusy] = useState(false)
 
+  // Nothing can run until svc is set, and svc is set together with the borrower, so a run never
+  // starts SIM and then finds itself LIVE.
   useEffect(() => {
+    let dead = false
     void serviceStatus().then(async (st) => {
+      const b = st.solana && st.attestor.ok ? await relayBorrower() : null
+      if (dead) return
+      setBorrower(b)
       setSvc(st)
-      if (st.solana && st.attestor.ok) setBorrower(await relayBorrower())
     })
+    return () => {
+      dead = true
+    }
   }, [])
 
-  const mode: Mode = svc?.solana && svc.attestor.ok && borrower ? 'live' : 'sim'
+  const deployed: Mode = svc?.solana && svc.attestor.ok && borrower ? 'live' : 'sim'
+  const mode: Mode = s.mode ?? deployed
   const next = ORDER.find((id) => s.status[id] === 'idle')
   const halted = ORDER.some((id) => s.status[id] === 'failed')
   const reset = () => setS(INITIAL)
 
-  async function loadProof(): Promise<string> {
+  async function loadProof(mode: Mode): Promise<string> {
     if (mode === 'live' && svc?.demoProver && borrower) {
       const out = await demoProve(POOL_REQUEST, borrower)
       if (!out.ok) throw new Error(`The demo holder could not prove: ${out.message}`)
@@ -72,12 +83,13 @@ export function GateDemo() {
   }
 
   async function step(id: StepId, st: State): Promise<State> {
+    const mode = st.mode ?? deployed
     const done = (patch: Partial<State>): State => ({ ...st, ...patch, status: { ...st.status, [id]: 'done' } })
     const fail = (title: string, body: string): State => ({ ...st, status: { ...st.status, [id]: 'failed' }, error: { ...st.error, [id]: { title, body } } })
     try {
       switch (id) {
         case 'proof': {
-          let b64 = await loadProof()
+          let b64 = await loadProof(mode)
           if (tamperProof) b64 = tamper(b64)
           return done({ proofB64: b64, proof: await verify(b64, DEMO_AUDIENCE.id) })
         }
@@ -108,15 +120,16 @@ export function GateDemo() {
   const runNext = async () => {
     if (!next || halted || busy) return
     setBusy(true)
-    setS({ ...s, status: { ...s.status, [next]: 'running' } })
-    setS(await step(next, s))
+    const st: State = { ...s, mode }
+    setS({ ...st, status: { ...st.status, [next]: 'running' } })
+    setS(await step(next, st))
     setBusy(false)
   }
 
   const runAll = async () => {
     if (busy) return
     setBusy(true)
-    let st: State = INITIAL
+    let st: State = { ...INITIAL, mode: deployed }
     setS(st)
     for (const id of ORDER) {
       setS({ ...st, status: { ...st.status, [id]: 'running' } })
@@ -174,9 +187,9 @@ export function GateDemo() {
 
         <fieldset className="space-y-3">
           <legend className="t-eyebrow mb-3 text-ink-3">BREAK SOMETHING</legend>
-          <Toggle checked={tamperProof} onChange={(v) => { setTamperProof(v); reset() }} label="Flip one byte of the proof" hint="The attestor runs the verifier, gets ProofInvalid, refuses to sign." />
-          <Toggle checked={tamperAtt} onChange={(v) => { setTamperAtt(v); reset() }} label="Flip one byte of the attestation" hint="The Ed25519 instruction fails; pof-gate never runs." />
-          <Toggle checked={attestorDown} onChange={(v) => { setAttestorDown(v); reset() }} label="Take the attestor offline" hint="Simulated outage. The demo says so instead of spinning." />
+          <Toggle disabled={busy} checked={tamperProof} onChange={(v) => { setTamperProof(v); reset() }} label="Flip one byte of the proof" hint="The attestor runs the verifier, gets ProofInvalid, refuses to sign." />
+          <Toggle disabled={busy} checked={tamperAtt} onChange={(v) => { setTamperAtt(v); reset() }} label="Flip one byte of the attestation" hint="The Ed25519 instruction fails; pof-gate never runs." />
+          <Toggle disabled={busy} checked={attestorDown} onChange={(v) => { setAttestorDown(v); reset() }} label="Take the attestor offline" hint="Simulated outage. The demo says so instead of spinning." />
         </fieldset>
 
         {mode === 'sim' ? (
@@ -202,7 +215,7 @@ export function GateDemo() {
                 <ClaimLine claim={s.proof.envelope.claim} anchorHeight={s.proof.envelope.anchor.height} />
               ) : (
                 <p className="t-body text-ink-2">
-                  Claims to hold at least {formatZec(s.proof.envelope.claim.zatoshi, 2)} ZEC. Your browser’s verifier says: {s.proof.verdict.kind}.
+                  Claims to hold at least {formatZecExact(s.proof.envelope.claim.zatoshi)} ZEC. Your browser’s verifier says: {s.proof.verdict.kind}.
                 </p>
               )}
               <Artifact
@@ -268,7 +281,7 @@ export function GateDemo() {
           {s.line && (
             <>
               <p className="t-body text-ink">
-                A credit line of <span className="font-mono">{s.line.limit}</span> is open against a proof of at least {formatZec(s.line.requiredZatoshi, 2)} ZEC.
+                A credit line of <span className="font-mono">{s.line.limit}</span> is open against a proof of at least {formatZecExact(s.line.requiredZatoshi)} ZEC.
               </p>
               <Artifact
                 rows={[
@@ -277,7 +290,7 @@ export function GateDemo() {
                   ['limit', s.line.limit],
                   ['drawn', s.line.drawn],
                   ['against', <Hash key="a" value={s.line.openedAgainst} head={8} tail={6} label="receipt" />],
-                  ['required', `${formatInt(DEMO_THRESHOLD_ZAT)} zat`],
+                  ['required', `${formatInt(s.line.requiredZatoshi)} zat`],
                 ]}
               />
               <p className="t-data-sm mt-5 text-ink-3">The ZEC never left Zcash. The pool never learned the balance, the notes, or any address.</p>
@@ -347,10 +360,15 @@ function Artifact({ rows }: { rows: [string, ReactNode][] }) {
   )
 }
 
-function Toggle({ checked, onChange, label, hint }: { checked: boolean; onChange: (v: boolean) => void; label: string; hint: string }) {
+function Toggle({ checked, onChange, label, hint, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; hint: string; disabled?: boolean }) {
   return (
-    <label className="flex cursor-pointer gap-3 rounded-chip border border-border p-3 transition-colors duration-200 hover:border-ink has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-[3px] has-[:focus-visible]:outline-seal">
-      <input type="checkbox" className="peer sr-only" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    <label
+      className={cx(
+        'flex gap-3 rounded-chip border border-border p-3 transition-colors duration-200 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-[3px] has-[:focus-visible]:outline-seal',
+        disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-ink',
+      )}
+    >
+      <input type="checkbox" className="peer sr-only" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       <span className={cx('mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[2px] border', checked ? 'border-ink bg-ink' : 'border-border')} aria-hidden>
         {checked && <span className="h-1.5 w-1.5 bg-bone" />}
       </span>
