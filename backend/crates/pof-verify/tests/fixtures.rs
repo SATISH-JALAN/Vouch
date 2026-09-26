@@ -9,9 +9,22 @@ fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../fixtures")
 }
 
+/// The anchor table the site and the attestor ship: every network's records, merged as
+/// scripts/sync-fixtures.sh does.
+fn all_anchors(dir: &std::path::Path) -> Vec<AnchorRecord> {
+    let mut all = vec![];
+    for net in ["mainnet", "testnet", "demo"] {
+        if let Ok(b) = std::fs::read(dir.join(format!("anchors.{net}.json"))) {
+            all.extend(serde_json::from_slice::<Vec<AnchorRecord>>(&b).unwrap());
+        }
+    }
+    all
+}
+
 #[test]
 fn every_vector_matches_expected() {
     let dir = fixtures();
+    let all = all_anchors(&dir);
     let anchors: Vec<AnchorRecord> = serde_json::from_slice(&std::fs::read(dir.join("anchors.demo.json")).unwrap()).unwrap();
     let revoked: Value = serde_json::from_slice(&std::fs::read(dir.join("revocations.demo.json")).unwrap()).unwrap();
     let revoked: Vec<String> = revoked["secrets"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect();
@@ -19,15 +32,29 @@ fn every_vector_matches_expected() {
     let now = meta["evaluatedAt"].as_u64().unwrap();
     let zk = ZkVerifier::new().unwrap();
     let mut failures = vec![];
-    for (name, want) in meta["expected"].as_object().unwrap() {
-        let file = std::fs::read(dir.join("proofs").join(format!("{name}.pof"))).unwrap();
-        let audience = want["audience"].as_str().unwrap();
-        let r = verify(&file, &Context { audience, anchors: &anchors, revoked_secrets: &revoked, now, zk: &zk });
-        let got = serde_json::to_value(&r.verdict).unwrap()["kind"].as_str().unwrap().to_string();
-        let want = want["verdict"].as_str().unwrap();
-        println!("{name:<18} {got}");
-        if got != want {
-            failures.push(format!("{name}: got {got}, want {want}"));
+    // expected.json: the demo vectors (rewritten by `pof-prove demo fixtures`). expected.testnet.json:
+    // real Zcash testnet proofs, kept by hand. Each is checked against the merged table.
+    let mut sets = vec![meta.clone()];
+    if let Ok(b) = std::fs::read(dir.join("expected.testnet.json")) {
+        sets.push(serde_json::from_slice(&b).unwrap());
+    }
+    for set in &sets {
+        let now = set["evaluatedAt"].as_u64().unwrap();
+        for (name, want) in set["expected"].as_object().unwrap() {
+            let file = std::fs::read(dir.join("proofs").join(format!("{name}.pof"))).unwrap();
+            let audience = want["audience"].as_str().unwrap();
+            let r = verify(&file, &Context { audience, anchors: &all, revoked_secrets: &revoked, now, zk: &zk });
+            let got = serde_json::to_value(&r.verdict).unwrap()["kind"].as_str().unwrap().to_string();
+            println!("{name:<18} {got}");
+            if got != want["verdict"].as_str().unwrap() {
+                failures.push(format!("{name}: got {got}, want {}", want["verdict"]));
+            }
+            if let Some(net) = want.get("network").and_then(Value::as_str) {
+                let got = r.anchor.as_ref().map(|a| a.network.as_str());
+                if got != Some(net) {
+                    failures.push(format!("{name}: anchor network {got:?}, want {net}"));
+                }
+            }
         }
     }
     // base64url text input and garbage
