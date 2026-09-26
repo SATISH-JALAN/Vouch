@@ -1,6 +1,7 @@
 //! pof-prove — the holder's CLI. Keys stay in this process; nothing is broadcast.
 //!
 //!   pof-prove prove          --request <encoded> --snapshot target/snapshots/mainnet-3500000.vsnp --seed-file ~/.vouch/seed.txt --out proof.pof
+//!                            (testnet: a testnet-*.vsnp snapshot; --network defaults to the snapshot's)
 //!   pof-prove demo init      --out fixtures/
 //!   pof-prove demo prove     --world fixtures/demo-world.json --request <encoded> --out proof.pof
 //!   pof-prove demo fixtures  --world fixtures/demo-world.json --out fixtures/
@@ -47,8 +48,9 @@ enum Cmd {
         seed_file: PathBuf,
         #[arg(long, default_value_t = 0)]
         account: u32,
-        #[arg(long, default_value = "mainnet")]
-        network: String,
+        /// mainnet or testnet (ZIP 32 coin type 133 or 1). Default: the snapshot's network.
+        #[arg(long, value_parser = ["mainnet", "testnet"])]
+        network: Option<String>,
         #[arg(long)]
         bind_solana: Option<String>,
         #[arg(long)]
@@ -261,13 +263,17 @@ fn main() -> anyhow::Result<()> {
             let req = parse_request(&request)?;
             let binding = review(&req, bind_solana.as_deref(), yes)?;
             let history = History::load(&history_path())?;
+            let pb = stage("loading the snapshot");
+            let chain = pof_anchor::Snapshot::read(&mut std::fs::File::open(&snapshot)?)?;
+            let network = network.unwrap_or_else(|| chain.network.clone());
+            anyhow::ensure!(chain.network == network, "the snapshot is for {}, not {network}", chain.network);
+            done(pb, format!("{} Ironwood actions to block {} on {network}", chain.actions.len(), chain.height));
+            if network == "testnet" {
+                eprintln!("  note: testnet — the proof is real, but TAZ has no value; verifiers show it as a testnet anchor");
+            }
             let pb = stage("reading your seed and deriving the Ironwood key (it stays in this process)");
             let sk = wallet::spending_key(&wallet::seed_from_file(&seed_file)?, &network, account)?;
             done(pb, format!("account {account} on {network}"));
-            let pb = stage("loading the snapshot");
-            let chain = pof_anchor::Snapshot::read(&mut std::fs::File::open(&snapshot)?)?;
-            anyhow::ensure!(chain.network == network, "the snapshot is for {}, not {network}", chain.network);
-            done(pb, format!("{} Ironwood actions to block {}", chain.actions.len(), chain.height));
             let pb = stage("finding your notes (trial decryption with your viewing key, all cores)");
             let fvk = FullViewingKey::from(&sk);
             let found = wallet::find_notes(&chain, &fvk);

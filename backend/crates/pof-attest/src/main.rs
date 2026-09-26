@@ -329,6 +329,10 @@ async fn main() -> anyhow::Result<()> {
     if anchors.iter().any(|a| a.network == "demo") {
         tracing::warn!("the anchor table includes the demo ledger: this key signs demo proofs, so only demo deployments may trust it");
     }
+    if anchors.iter().any(|a| a.network == "testnet") {
+        // The 139-byte attestation carries the anchor height, not its network.
+        tracing::warn!("the anchor table includes Zcash testnet: this key signs testnet proofs (TAZ has no value), so only demo deployments may trust it");
+    }
     let static_revocations = match std::env::var("POF_REVOCATIONS_FILE") {
         Ok(p) => {
             #[derive(Deserialize)]

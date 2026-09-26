@@ -110,6 +110,9 @@ fn run(cmd: Cmd) -> anyhow::Result<i32> {
         if matches!(r.verdict, Verdict::Valid { .. }) && r.anchor.as_ref().is_some_and(|a| a.network == "demo") {
             println!("WARNING: demo ledger. This anchor is the synthetic demonstration tree, not Zcash mainnet: it says nothing about real funds.");
         }
+        if matches!(r.verdict, Verdict::Valid { .. }) && r.anchor.as_ref().is_some_and(|a| a.network == "testnet") {
+            println!("NOTE: Zcash testnet. A real proof over real testnet notes, but TAZ has no monetary value: it says nothing about mainnet funds.");
+        }
         for c in &r.checks {
             println!("  {:<10} {:<8} {}", c.id, format!("{:?}", c.status).to_lowercase(), c.detail);
         }
