@@ -82,6 +82,19 @@ cargo run --release -p pof-prove -- prove \
   --seed-file ~/seed.txt --out proof.pof
 ```
 
+On Zcash testnet (TAZ, free from a faucet; Ironwood active since block 4,134,000), the same steps with `--network testnet`:
+`pof-anchor` then uses `https://testnet.zec.rocks:443`, starts at testnet activation and writes `target/snapshots/testnet-<h>.vsnp` +
+`../fixtures/anchors.testnet.json`; `pof-prove` takes the network (ZIP 32 coin type 1) from the snapshot.
+
+```bash
+cargo run --release -p pof-anchor -- scan --network testnet
+cargo run --release -p pof-anchor -- check --snapshot target/snapshots/testnet-<h>.vsnp
+../scripts/sync-fixtures.sh
+cargo run --release -p pof-prove -- prove --request '<link>' --snapshot target/snapshots/testnet-<h>.vsnp --seed-file ~/testnet-seed.txt --out proof.pof
+```
+
+Verifiers label a testnet anchor as such: a real proof over real testnet notes, which have no monetary value.
+
 ## Tests
 
 | Command | What it checks |

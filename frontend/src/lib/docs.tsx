@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { DEMO_AUDIENCE, ED25519_PROGRAM, IRONWOOD_ACTIVATION_HEIGHT } from './data/chain'
+import { DEMO_AUDIENCE, ED25519_PROGRAM, IRONWOOD_ACTIVATION_HEIGHT, IRONWOOD_ACTIVATION_HEIGHT_TESTNET } from './data/chain'
 import { formatInt } from './format'
 import { LINKS } from './site'
 import gateIdl from '../data/idl/pof_gate.json'
@@ -271,6 +271,12 @@ signature  = RedPallas SpendAuth over message, under rk`}</Code>
             The table is served at <A href="/api/anchors">/api/anchors</A>. Anyone can re-derive every entry: <C>pof-anchor scan --to &lt;height&gt;</C>.
             The <C>demo</C> anchor belongs to the published demo ledger and is labelled as such wherever it is used.
           </p>
+          <p>
+            Zcash testnet works the same way (Ironwood from block {formatInt(IRONWOOD_ACTIVATION_HEIGHT_TESTNET)}): <C>pof-anchor scan --network testnet</C>{' '}
+            reads <C>testnet.zec.rocks</C> and records <C>network: &quot;testnet&quot;</C>. Verdicts on a testnet anchor say so: the proof is real, the
+            coins (TAZ) have no monetary value. The network is recorded in the anchor table, not in the proof or the attestation, so a verifier that
+            only wants mainnet should trust only mainnet anchors.
+          </p>
         </>
       ),
     },
@@ -421,6 +427,10 @@ pof-anchor scan --server https://zec.rocks:443 --to ${mainnet?.height ?? 3493000
           <p>
             It writes <C>target/snapshots/mainnet-&lt;height&gt;.vsnp</C>, the path the command on <C>/prove</C> expects. The anchor it prints must
             match the one published in the table, or verifiers will answer AnchorNotFound.
+          </p>
+          <p>
+            On Zcash testnet add <C>--network testnet</C>: the server, start height and table switch to testnet, the snapshot is{' '}
+            <C>target/snapshots/testnet-&lt;height&gt;.vsnp</C>, and <C>pof-prove</C> takes the network (ZIP 32 coin type 1) from it.
           </p>
         </>
       ),

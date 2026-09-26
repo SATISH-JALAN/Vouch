@@ -72,9 +72,10 @@ export function decodeRequestDetailed(s: string): DecodedRequest {
 
 // Both commands assume the working directory the READMEs use: backend/.
 
-/** For holders with their own wallet. Keys never leave their machine. The snapshot path is where `pof-anchor scan` writes by default. */
+/** For holders with their own wallet. Keys never leave their machine. The snapshot path is where `pof-anchor scan` writes by default
+ *  (`mainnet-<height>` or `testnet-<height>`); pof-prove takes the network from the snapshot. */
 export function cliCommand(encoded: string, bind?: 'solana') {
-  return `pof-prove prove --request ${encoded} --snapshot target/snapshots/mainnet-<height>.vsnp --seed-file ~/.vouch/seed.txt${bind === 'solana' ? ' --bind-solana <your-solana-pubkey>' : ''} --out proof.pof`
+  return `pof-prove prove --request ${encoded} --snapshot target/snapshots/<network>-<height>.vsnp --seed-file ~/.vouch/seed.txt${bind === 'solana' ? ' --bind-solana <your-solana-pubkey>' : ''} --out proof.pof`
 }
 
 /** The same request answered by the demo holder on the demo ledger. */

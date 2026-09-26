@@ -15,6 +15,9 @@ export const ANCHOR = {
 /** First block of the Ironwood pool (NU6.3). Source: The Block, 28 Jul 2026. */
 export const IRONWOOD_ACTIVATION_HEIGHT = 3_428_143
 
+/** First block of the Ironwood pool on Zcash testnet (NU6.3). Source: ZIP 258; zcash_protocol TEST_NETWORK. */
+export const IRONWOOD_ACTIVATION_HEIGHT_TESTNET = 4_134_000
+
 /** Ironwood network upgrade activation. Source: CoinDesk, 28 Jul 2026. */
 export const IRONWOOD_ACTIVATION = '28 Jul 2026'
 

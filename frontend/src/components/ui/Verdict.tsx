@@ -114,6 +114,7 @@ export function Verdict({ result, audienceId, className }: { result: Verificatio
               <p className="t-data text-ink-2">
                 Made for you · valid until {formatDate(env.expiresAt)} · {passed} of {result.checks.length} checks passed
                 {result.anchor?.network === 'demo' && ' · demo anchor'}
+                {result.anchor?.network === 'testnet' && ' · Zcash testnet anchor (TAZ, no monetary value)'}
               </p>
             </div>
           ) : (

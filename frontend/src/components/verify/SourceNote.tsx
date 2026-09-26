@@ -22,6 +22,12 @@ export function SourceNote({ result, className }: { result: VerificationResult; 
           proof is real, but the commitment tree and nullifier set are ours. Mainnet anchors are rebuilt from public chain data by pof-anchor.
         </TrustNote>
       )}
+      {result.anchor?.network === 'testnet' && (
+        <TrustNote label="ZCASH TESTNET" tone="strong" className="mt-3">
+          This proof is anchored to Zcash testnet: real Ironwood notes on the public testnet chain, with roots rebuilt from testnet lightwalletd
+          data by pof-anchor. Testnet coins (TAZ) have no monetary value, so it says nothing about mainnet funds.
+        </TrustNote>
+      )}
     </div>
   )
 }

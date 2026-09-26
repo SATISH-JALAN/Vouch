@@ -39,9 +39,10 @@ cargo run --release -p pof-verify -- check proof.pof --audience <id> --anchors a
 # Anchors: scan lightwalletd, write a snapshot, merge the record into the anchor table
 cargo run --release -p pof-anchor -- scan    # → target/snapshots/mainnet-<h>.vsnp, merged into ../fixtures/anchors.mainnet.json
 cargo run --release -p pof-anchor -- check --snapshot target/snapshots/mainnet-3493000.vsnp
+cargo run --release -p pof-anchor -- scan --network testnet   # testnet.zec.rocks, from 4,134,000 → testnet-<h>.vsnp + ../fixtures/anchors.testnet.json
 ../scripts/sync-fixtures.sh                                          # publish anchors + proofs to the site; then redeploy site and attestor
 
-# Prove (your wallet). The seed file holds a BIP 39 mnemonic or a hex seed
+# Prove (your wallet). The seed file holds a BIP 39 mnemonic or a hex seed; the network (coin type 133 / 1) comes from the snapshot
 cargo run --release -p pof-prove -- prove --request '<link>' --snapshot target/snapshots/mainnet-<h>.vsnp --seed-file <file> --out proof.pof [--bind-solana <b58>]
 cargo run --release -p pof-prove -- history [--secrets]
 cargo run --release -p pof-prove -- revoke <proof id> --endpoint https://<site>/api/revocations
