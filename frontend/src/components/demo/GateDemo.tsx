@@ -33,6 +33,7 @@ interface State {
 
 const INITIAL: State = { status: { proof: 'idle', attest: 'idle', tx: 'idle', line: 'idle' }, error: {} }
 const ORDER: StepId[] = ['proof', 'attest', 'tx', 'line']
+const TITLES: Record<StepId, string> = { proof: 'the proof', attest: 'the attestation', tx: 'the transaction', line: 'credit line' }
 const POOL_REQUEST: ProofRequest = { v: 1, claim: 'HoldsAtLeast', zatoshi: String(DEMO_THRESHOLD_ZAT), audience: DEMO_AUDIENCE.id, expiryDays: 7, bind: 'solana' }
 
 /** Flip one byte of Halo2 evidence and re-seal the checksum, as a forger would. */
@@ -147,7 +148,15 @@ export function GateDemo() {
       mode === 'live'
         ? await relaySubmit({ action: 'submit', attestation: { message: s.attestation.message, signature: s.attestation.signature, attestor: s.attestation.attestor } })
         : ({ ok: false, failedAt: 'Instruction 1 · pof-gate', message: 'Simulated: the ClaimReceipt account for this proof id already exists, so account creation fails. One proof, one receipt.' } as const)
-    setS({ ...s, extra: out.ok ? { ok: false, title: 'Replay was accepted', body: 'This should never happen: pof-gate created a second receipt.' } : { ok: true, title: `Replay refused · ${out.failedAt}`, body: out.message } })
+    // Only a refusal by the chain counts. A relayer that is busy or out of budget refused nothing.
+    setS({
+      ...s,
+      extra: out.ok
+        ? { ok: false, title: 'Replay was accepted', body: 'This should never happen: pof-gate created a second receipt.' }
+        : out.failedAt.startsWith('Instruction')
+          ? { ok: true, title: `Replay refused · ${out.failedAt}`, body: out.message }
+          : { ok: false, title: `Could not run the replay · ${out.failedAt}`, body: out.message },
+    })
     setBusy(false)
   }
 
@@ -158,9 +167,29 @@ export function GateDemo() {
       mode === 'live'
         ? await relayOpenLine({ action: 'open-line', receipt: s.tx.receipt, wallet: 'stranger' })
         : ({ ok: false, failedAt: 'pof-credit · open_line', message: 'Simulated: the signer is not the account the proof is bound to, so pof-credit refuses. A copied proof or receipt is worthless to anyone else.' } as const)
-    setS({ ...s, extra: out.ok ? { ok: false, title: 'Another wallet opened a line', body: 'This should never happen.' } : { ok: true, title: `Refused · ${out.failedAt}`, body: out.message } })
+    setS({
+      ...s,
+      extra: out.ok
+        ? { ok: false, title: 'Another wallet opened a line', body: 'This should never happen.' }
+        : out.failedAt.startsWith('pof-credit')
+          ? { ok: true, title: `Refused · ${out.failedAt}`, body: out.message }
+          : { ok: false, title: `Could not run this · ${out.failedAt}`, body: out.message },
+    })
     setBusy(false)
   }
+
+  // Screen readers hear each step land; failures are already announced by their role="alert".
+  const running = ORDER.find((id) => s.status[id] === 'running')
+  const doneCount = ORDER.filter((id) => s.status[id] === 'done').length
+  const announce = running
+    ? `Step ${ORDER.indexOf(running) + 1}, ${TITLES[running]}: running.`
+    : halted
+      ? ''
+      : doneCount === ORDER.length
+        ? `All four steps done: ${s.line ? `a credit line of ${s.line.limit} is open.` : 'complete.'}`
+        : doneCount > 0
+          ? `Step ${doneCount}, ${TITLES[ORDER[doneCount - 1]!]}: done.`
+          : ''
 
   const binding = s.proof?.envelope && !isUnbound(s.proof.envelope.binding) ? toBase58(fromHex(s.proof.envelope.binding)) : null
 
@@ -206,6 +235,9 @@ export function GateDemo() {
         )}
       </aside>
 
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {announce}
+      </p>
       {/* the stepper */}
       <ol className="relative">
         <Step n={1} title="The proof" status={s.status.proof} error={s.error.proof} caption={mode === 'live' ? 'The demo holder proves ≥ 500 ZEC for the pool, bound to the borrower’s Solana account. The ZEC stays where it is.' : 'The borrower hands over proof.pof. The ZEC stays where it is.'}>
