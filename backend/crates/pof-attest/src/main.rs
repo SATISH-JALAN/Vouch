@@ -91,7 +91,7 @@ impl App {
         let mut cache = self.revocation_cache.lock().await;
         if cache.0.is_none_or(|t| t.elapsed() > REVOCATIONS_TTL) {
             cache.0 = Some(Instant::now());
-            match self.fetch_revocations(url).await {
+            match fetch_revocations(&self.http, url).await {
                 Ok(secrets) => cache.1 = secrets,
                 // Fail closed would stop the demo on a network blip; fail open keeps the last list
                 // read and is logged. The on-chain consumer can re-check revocation before acting.
@@ -102,28 +102,13 @@ impl App {
         out
     }
 
-    async fn fetch_revocations(&self, url: &str) -> reqwest::Result<Vec<String>> {
-        #[derive(Deserialize)]
-        struct List {
-            secrets: Vec<String>,
-        }
-        let r = self.http.get(url).timeout(Duration::from_secs(4)).send().await?.error_for_status()?;
-        Ok(r.json::<List>().await?.secrets)
-    }
-
-    /// The current confirmed slot, for pof-gate's freshness check. Errors are logged in full but
-    /// answered without detail: the RPC URL may carry an API key.
+    /// The current confirmed slot, for pof-gate's freshness check. Errors are logged without the
+    /// URL and answered without detail: the RPC URL may carry an API key.
     async fn slot(&self) -> Result<u64, Refusal> {
         let Some(rpc) = &self.rpc else {
             return Err(Refusal(StatusCode::SERVICE_UNAVAILABLE, "this attestor has no SOLANA_RPC_URL, so it cannot sign a fresh attestation"));
         };
-        let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "getSlot", "params": [{ "commitment": "confirmed" }] });
-        let fetched: anyhow::Result<u64> = async {
-            let r: serde_json::Value = self.http.post(rpc).json(&body).timeout(Duration::from_secs(5)).send().await?.error_for_status()?.json().await?;
-            r["result"].as_u64().ok_or_else(|| anyhow::anyhow!("getSlot returned no slot: {r}"))
-        }
-        .await;
-        fetched.map_err(|e| {
+        rpc_slot(&self.http, rpc).await.map_err(|e| {
             tracing::warn!("could not read the Solana slot: {e:#}");
             Refusal(StatusCode::BAD_GATEWAY, "could not read the Solana slot")
         })
@@ -136,6 +121,27 @@ impl App {
         // CPU-bound: keep it off the async workers so /health and the rest stay responsive.
         Ok(tokio::task::block_in_place(|| verify(proof.as_bytes(), &ctx)))
     }
+}
+
+/// The site's published revocation secrets. As with [`rpc_slot`], the error never contains `url`:
+/// it is logged, and a list URL may carry an access token.
+async fn fetch_revocations(http: &reqwest::Client, url: &str) -> reqwest::Result<Vec<String>> {
+    #[derive(Deserialize)]
+    struct List {
+        secrets: Vec<String>,
+    }
+    let fetched = async { http.get(url).timeout(Duration::from_secs(4)).send().await?.error_for_status()?.json::<List>().await }.await;
+    Ok(fetched.map_err(reqwest::Error::without_url)?.secrets)
+}
+
+/// `getSlot` at confirmed commitment. The error never contains `rpc`: reqwest's own errors name
+/// the URL they failed on (with any `?api-key=` in it), and this one is logged.
+async fn rpc_slot(http: &reqwest::Client, rpc: &str) -> anyhow::Result<u64> {
+    let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "getSlot", "params": [{ "commitment": "confirmed" }] });
+    let r = async { http.post(rpc).json(&body).timeout(Duration::from_secs(5)).send().await?.error_for_status()?.json::<serde_json::Value>().await }
+        .await
+        .map_err(reqwest::Error::without_url)?;
+    r["result"].as_u64().ok_or_else(|| anyhow::anyhow!("getSlot returned no slot: {r}"))
 }
 
 #[derive(Deserialize)]
@@ -410,5 +416,43 @@ mod tests {
         assert_eq!(u64::from_le_bytes(m[110..118].try_into().unwrap()), 50_000_000_000);
         assert_eq!(u64::from_le_bytes(m[131..139].try_into().unwrap()), 42);
         assert_eq!(&m[77..109], &env.audience);
+    }
+
+    /// A one-shot HTTP server on 127.0.0.1 answering `status` with `body`. Returns its port.
+    fn serve_once(status: &'static str, body: &'static str) -> u16 {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let _ = s.read(&mut [0u8; 8192]);
+            let _ = write!(s, "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+        });
+        port
+    }
+
+    fn url(port: u16) -> String {
+        format!("http://127.0.0.1:{port}/SECRET-PATH?api-key=SECRET-KEY")
+    }
+
+    /// Every failure is logged: none may carry the URL, which can hold an API key.
+    #[tokio::test]
+    async fn fetch_errors_never_name_the_url() {
+        let http = reqwest::Client::new();
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let mut errors = vec![
+            format!("{:#}", rpc_slot(&http, &url(closed)).await.unwrap_err()),
+            format!("{:#}", rpc_slot(&http, &url(serve_once("500 Internal Server Error", "{}"))).await.unwrap_err()),
+            format!("{:#}", rpc_slot(&http, &url(serve_once("200 OK", "not json"))).await.unwrap_err()),
+            format!("{:#}", rpc_slot(&http, &url(serve_once("200 OK", r#"{"error":"x"}"#))).await.unwrap_err()),
+        ];
+        for (status, body) in [("503 Service Unavailable", "{}"), ("200 OK", "[1]")] {
+            errors.push(format!("{:#}", anyhow::Error::from(fetch_revocations(&http, &url(serve_once(status, body))).await.unwrap_err())));
+        }
+        for e in errors {
+            assert!(!e.contains("SECRET"), "{e}");
+        }
+        assert_eq!(rpc_slot(&http, &url(serve_once("200 OK", r#"{"jsonrpc":"2.0","result":42,"id":1}"#))).await.unwrap(), 42);
+        assert_eq!(fetch_revocations(&http, &url(serve_once("200 OK", r#"{"secrets":["ab"]}"#))).await.unwrap(), ["ab"]);
     }
 }
