@@ -51,7 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Preloader />
           <RouteTransition />
           <Nav />
-          <main id="main">{children}</main>
+          <main id="main" tabIndex={-1} className="outline-none">{children}</main>
           <Footer />
           <Cursor />
         </MotionProvider>

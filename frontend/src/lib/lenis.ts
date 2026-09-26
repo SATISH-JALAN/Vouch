@@ -26,15 +26,21 @@ export function stopLenis() {
 
 export const getLenis = () => instance
 
-/** Scroll to an element or y, through Lenis when it is running. */
+/**
+ * Scroll to an element or y, through Lenis when it is running. Without Lenis (reduced motion)
+ * it jumps. An element target also receives focus, so a keyboard user continues from there.
+ */
 export function scrollToTarget(target: string | HTMLElement | number, immediate = false) {
+  const el = typeof target === 'number' ? null : typeof target === 'string' ? document.querySelector<HTMLElement>(target) : target
   if (instance) {
     instance.scrollTo(target, { immediate, offset: typeof target === 'number' ? 0 : -72, duration: 1.2 })
-    return
+  } else {
+    const smooth = !immediate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (typeof target === 'number') window.scrollTo({ top: target, behavior: smooth ? 'smooth' : 'auto' })
+    else el?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' })
   }
-  if (typeof target === 'number') window.scrollTo({ top: target, behavior: immediate ? 'auto' : 'smooth' })
-  else {
-    const el = typeof target === 'string' ? document.querySelector(target) : target
-    el?.scrollIntoView({ behavior: immediate ? 'auto' : 'smooth' })
+  if (el && !immediate) {
+    if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1')
+    el.focus({ preventScroll: true })
   }
 }
