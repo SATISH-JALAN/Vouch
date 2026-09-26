@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Deploy pof-gate and pof-credit to Solana devnet under their fixed program ids, then allowlist the
 # attestor, create the dUSDC mint and the ≥ 500 ZEC credit pool, and fund the demo relayer.
-# Prints the environment the site needs (paste into Vercel).
+# Prints the site's public environment, and writes the whole of it, demo keypairs included, to
+# backend/solana/keys/vercel.env (owner-only, gitignored): secret keys are never printed.
 #
 #   POF_ATTEST_URL=https://<attestor> [ATTESTORS=<attestor pubkey b58>[,…]] ./scripts/deploy-devnet.sh
 #
@@ -55,17 +56,35 @@ cd frontend
 [ -d node_modules ] || pnpm install --frozen-lockfile
 OUT=$(SOLANA_RPC_URL=$URL ADMIN_KEYPAIR=$ADMIN ATTESTORS=$ATTESTORS MINT_KEYPAIR=$KEYS/mint.json node --no-warnings scripts/solana-setup.ts)
 
+# The public env goes to stdout. The three demo keypairs are secrets: they go only into a file under
+# the gitignored keys/, owner-only, and are never printed (terminal scrollback and CI logs are kept).
+PUBLIC_ENV="SOLANA_RPC_URL=$URL
+SOLANA_CLUSTER=devnet
+POF_ATTEST_URL=$POF_ATTEST_URL
+$OUT"
+ENV_FILE=$KEYS/vercel.env
+(
+  umask 077
+  rm -f "$ENV_FILE"
+  {
+    echo "# Vouch site environment for Vercel, written by scripts/deploy-devnet.sh. Contains secret keys: never commit or share."
+    echo "$PUBLIC_ENV"
+    printf 'RELAYER_SECRET_KEY=%s\n' "$(tr -d ' \r\n' < "$KEYS/relayer.json")"
+    printf 'BORROWER_SECRET_KEY=%s\n' "$(tr -d ' \r\n' < "$KEYS/borrower.json")"
+    printf 'STRANGER_SECRET_KEY=%s\n' "$(tr -d ' \r\n' < "$KEYS/stranger.json")"
+  } > "$ENV_FILE"
+)
+chmod 600 "$ENV_FILE"
+
 cat <<EOF
 
 Done. Site environment (Vercel → Settings → Environment Variables):
 
-SOLANA_RPC_URL=$URL
-SOLANA_CLUSTER=devnet
-POF_ATTEST_URL=$POF_ATTEST_URL
-$OUT
-RELAYER_SECRET_KEY=$(tr -d ' \n' < "$KEYS/relayer.json")
-BORROWER_SECRET_KEY=$(tr -d ' \n' < "$KEYS/borrower.json")
-STRANGER_SECRET_KEY=$(tr -d ' \n' < "$KEYS/stranger.json")
+$PUBLIC_ENV
+
+plus RELAYER_SECRET_KEY, BORROWER_SECRET_KEY and STRANGER_SECRET_KEY, which are not printed.
+The complete env, secrets included, is in $ENV_FILE (owner-only, gitignored):
+Vercel's environment-variable form accepts the file's contents pasted in one go.
 
 And on the attestor: SOLANA_RPC_URL=$URL
 EOF
