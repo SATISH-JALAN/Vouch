@@ -25,7 +25,8 @@ async function post<T>(path: string, body: unknown, timeout = TIMEOUT_MS): Promi
 let statusCache: Promise<ServiceStatus> | null = null
 export function serviceStatus(): Promise<ServiceStatus> {
   // A failed answer is not cached: the next caller asks again instead of staying SIMULATED.
-  statusCache ??= fetch('/api/status', { cache: 'no-store' })
+  // /api/status waits at most 4 s on the attestor itself; this bounds the rest.
+  statusCache ??= fetch('/api/status', { cache: 'no-store', signal: AbortSignal.timeout(TIMEOUT_MS) })
     .then((r) => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       return r.json() as Promise<ServiceStatus>

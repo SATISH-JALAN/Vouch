@@ -50,6 +50,7 @@ export function VerifierConsole() {
   const [checked, setChecked] = useState<Checked | null>(null)
   const [busy, setBusy] = useState(false)
   const [ready, setReady] = useState<'loading' | 'ready' | 'failed'>('loading')
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [version, setVersion] = useState('pof-verify')
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -73,6 +74,8 @@ export function VerifierConsole() {
     setBusy(true)
     try {
       const result = await verify(input, audience, { count: true })
+      // a verdict means the WASM loaded after all (a retry after an earlier failure)
+      setReady('ready')
       if (mine === seq.current) setChecked({ result, text, audience })
     } catch (err) {
       if (mine !== seq.current) return
@@ -95,7 +98,10 @@ export function VerifierConsole() {
         setReady('ready')
         setVersion(m.version())
       })
-      .catch(() => setReady('failed'))
+      .catch((e: unknown) => {
+        setReady('failed')
+        setLoadError((e as Error).message)
+      })
     if (p) {
       setText(p)
       void run(p, 'custom', a)
@@ -255,6 +261,11 @@ export function VerifierConsole() {
         </div>
       </Panel>
 
+      {ready === 'failed' && !error && (
+        <div role="alert" className="t-data rounded-panel border border-invalid px-5 py-4 text-invalid">
+          The verifier could not load{loadError ? ` (${loadError})` : ''}. Nothing can be checked in this browser until it does: reload the page to try again.
+        </div>
+      )}
       {error && (
         <div role="alert" className="t-data rounded-panel border border-invalid px-5 py-4 text-invalid">
           {error}

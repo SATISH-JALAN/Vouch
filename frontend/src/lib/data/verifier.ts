@@ -14,15 +14,40 @@ interface PofWasm {
 }
 
 const WASM_JS = '/wasm/pof_wasm.js'
+/** ~4.5 MB of WASM: generous on a slow line, but never an endless spinner. */
+const WASM_TIMEOUT_MS = 45_000
+const FETCH_TIMEOUT_MS = 12_000
 let mod: Promise<PofWasm> | null = null
 
+/** Rejects after `ms` with a message a person can read. The work itself is not cancelled. */
+function within<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let t: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    t = setTimeout(() => reject(new Error(`${what} did not load within ${ms / 1000}s`)), ms)
+  })
+  return Promise.race([p, timeout]).finally(() => clearTimeout(t))
+}
+
+/** fetch with a deadline; a timeout reads as one. */
+async function fetchWithin(url: string, what: string, init: RequestInit = {}): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+  } catch (e) {
+    const name = (e as Error).name
+    throw new Error(name === 'TimeoutError' || name === 'AbortError' ? `${what}: no answer in ${FETCH_TIMEOUT_MS / 1000}s` : `${what}: network error`)
+  }
+}
+
 export function loadVerifier(): Promise<PofWasm> {
-  mod ??= import(/* webpackIgnore: true */ WASM_JS)
-    .then(async (m: PofWasm) => {
+  mod ??= within(
+    import(/* webpackIgnore: true */ WASM_JS).then(async (m: PofWasm) => {
       await m.default()
       m.warm()
       return m
-    })
+    }),
+    WASM_TIMEOUT_MS,
+    'the verifier (WASM)',
+  )
     .catch((e: unknown) => {
       mod = null
       throw e
@@ -32,7 +57,7 @@ export function loadVerifier(): Promise<PofWasm> {
 
 let anchors: Promise<AnchorRecord[]> | null = null
 export function loadAnchors(): Promise<AnchorRecord[]> {
-  anchors ??= fetch('/api/anchors')
+  anchors ??= fetchWithin('/api/anchors', 'anchor table')
     .then((r) => {
       if (!r.ok) throw new Error(`anchor table: HTTP ${r.status}`)
       return r.json() as Promise<AnchorRecord[]>
@@ -46,9 +71,11 @@ export function loadAnchors(): Promise<AnchorRecord[]> {
 
 /** Fetched fresh each time: a revocation must take effect on the next check. */
 export async function loadRevocations(): Promise<string[]> {
-  const r = await fetch('/api/revocations', { cache: 'no-store' })
-  if (!r.ok) throw new Error(`revocation list: HTTP ${r.status}`)
-  return ((await r.json()) as { secrets: string[] }).secrets
+  const r = await fetchWithin('/api/revocations', 'revocation list', { cache: 'no-store' })
+  const body = (await r.json().catch(() => null)) as { secrets?: unknown; error?: string } | null
+  if (!r.ok) throw new Error(`revocation list: ${body?.error ?? `HTTP ${r.status}`}`)
+  if (!Array.isArray(body?.secrets)) throw new Error('revocation list: unreadable answer')
+  return body.secrets as string[]
 }
 
 type RawEnvelope = Omit<Envelope, 'evidence'> & { evidence: Omit<Envelope['evidence'], 'proof'> & { proof: string } }
@@ -85,7 +112,7 @@ async function recordVerdict(kind: string) {
 }
 
 export async function fetchPreset(file: string): Promise<Uint8Array> {
-  const r = await fetch(`/proofs/${file}`)
+  const r = await fetchWithin(`/proofs/${file}`, `test vector ${file}`)
   if (!r.ok) throw new Error(`test vector ${file}: HTTP ${r.status}`)
   return new Uint8Array(await r.arrayBuffer())
 }

@@ -47,18 +47,20 @@ export function upsert(entry: HistoryEntry): HistoryEntry[] {
 
 export async function revoke(secret: string): Promise<{ ok: boolean; message: string }> {
   try {
-    const res = await fetch('/api/revocations', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret }) })
+    const res = await fetch('/api/revocations', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret }), signal: AbortSignal.timeout(15_000) })
     const body = (await res.json().catch(() => ({}))) as { error?: string }
     return res.ok ? { ok: true, message: 'Revoked. Any verifier that checks the list now refuses this proof.' } : { ok: false, message: body.error ?? `HTTP ${res.status}` }
   } catch (err) {
-    return { ok: false, message: (err as Error).message }
+    const e = err as Error
+    return { ok: false, message: e.name === 'TimeoutError' ? 'The revocation list did not answer in 15 s. Nothing is known to be revoked yet; try again.' : `Could not reach the revocation list: ${e.message}` }
   }
 }
 
 export async function revokedSecrets(): Promise<Set<string>> {
   try {
-    const r = await fetch('/api/revocations', { cache: 'no-store' })
-    return new Set(((await r.json()) as { secrets: string[] }).secrets)
+    const r = await fetch('/api/revocations', { cache: 'no-store', signal: AbortSignal.timeout(12_000) })
+    const body = (await r.json()) as { secrets?: unknown }
+    return new Set(Array.isArray(body.secrets) ? (body.secrets as string[]) : [])
   } catch {
     return new Set()
   }
