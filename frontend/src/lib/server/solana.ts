@@ -165,8 +165,13 @@ export function decodePool(data: Buffer): PoolAccount {
 export function keypairFrom(secret: string | undefined, name: string): Keypair {
   if (!secret) throw new Error(`${name} is not set`)
   const s = secret.trim()
-  const bytes = s.startsWith('[') ? Uint8Array.from(JSON.parse(s) as number[]) : bs58.decode(s)
-  return Keypair.fromSecretKey(bytes)
+  try {
+    const bytes = s.startsWith('[') ? Uint8Array.from(JSON.parse(s) as number[]) : bs58.decode(s)
+    return Keypair.fromSecretKey(bytes)
+  } catch {
+    // Never rethrow the parser's message: JSON.parse quotes the input, which is the key.
+    throw new Error(`${name} is not a valid keypair (a JSON byte array or base58)`)
+  }
 }
 
 export function connection(commitment: Commitment = 'confirmed') {
@@ -177,7 +182,8 @@ export function connection(commitment: Commitment = 'confirmed') {
 
 export function explorer(kind: 'tx' | 'address', id: string) {
   const cluster = process.env.SOLANA_CLUSTER ?? 'devnet'
-  const custom = cluster === 'localnet' ? `?cluster=custom&customUrl=${encodeURIComponent(process.env.SOLANA_RPC_URL ?? '')}` : `?cluster=${cluster}`
+  // Only the origin: a path or query can carry an RPC provider's API key.
+  const custom = cluster === 'localnet' ? `?cluster=custom&customUrl=${encodeURIComponent(rpcOrigin())}` : `?cluster=${cluster}`
   return `https://explorer.solana.com/${kind}/${id}${custom}`
 }
 
@@ -191,15 +197,47 @@ export async function send(conn: Connection, ixs: TransactionInstruction[], sign
   return sendAndConfirmTransaction(conn, tx, signers, { commitment: 'confirmed', skipPreflight: false })
 }
 
-/** Turn a failed send into the program error a person can read. */
+function rpcOrigin(): string {
+  try {
+    return new URL(process.env.SOLANA_RPC_URL ?? '').origin
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Remove the RPC endpoint from a message bound for a browser. web3.js reports a network failure
+ * as node-fetch's "request to <full url> failed", and a provider's URL carries its API key.
+ */
+export function redact(message: string): string {
+  let out = message
+  const url = process.env.SOLANA_RPC_URL
+  if (url) out = out.split(url).join('<rpc>')
+  const origin = rpcOrigin()
+  if (origin) out = out.split(origin).join('<rpc>')
+  return out.replace(/\b(?:https?|wss?):\/\/[^\s'"`)]+/gi, '<url>')
+}
+
+/**
+ * Whether a failed send was refused by the chain (simulation or execution ran and said no), as
+ * opposed to never getting there (RPC down, timeout, blockhash fetch failed). Only the first is
+ * a program's refusal; the demo must not present an outage as one.
+ */
+export function refusedByChain(err: unknown): boolean {
+  const e = err as { message?: string; logs?: unknown; transactionLogs?: unknown }
+  if (Array.isArray(e.logs) || Array.isArray(e.transactionLogs)) return true
+  return /simulation failed|custom program error|InstructionError|instruction \d+|already in use|signature verification|precompile/i.test(e.message ?? '')
+}
+
+/** Turn a failed send into the program error a person can read. Never carries the RPC URL. */
 export function explain(err: unknown): string {
   const e = err as { message?: string; logs?: string[]; transactionLogs?: string[] }
   const logs = e.logs ?? e.transactionLogs ?? []
   const anchor = logs.find((l) => l.includes('Error Message:'))
-  if (anchor) return anchor.replace(/^.*Error Message: /, '').replace(/\.$/, '')
+  if (anchor) return redact(anchor.replace(/^.*Error Message: /, '').replace(/\.$/, ''))
   const custom = /custom program error: (0x[0-9a-f]+)/i.exec(e.message ?? '')
   if (custom) return `program error ${custom[1]}`
-  return (e.message ?? String(err)).split('\n')[0]!
+  return redact((e.message ?? String(err)).split('\n')[0]!)
 }
 
 export { bs58 }

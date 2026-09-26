@@ -55,8 +55,27 @@ export async function proxyToAttestor(
       body,
       signal: AbortSignal.timeout(o.timeoutMs),
     })
-    return new Response(res.body, { status: res.status, headers: { 'content-type': res.headers.get('content-type') ?? 'application/json' } })
+    // A JSON answer is pof-attest's own and is passed on as it is. A plain-text one is axum's
+    // (a rejected body, say) and is wrapped; an HTML page came from a proxy in front of it and
+    // is replaced by its status, so the browser always gets {error} it can show.
+    if ((res.headers.get('content-type') ?? '').includes('application/json')) {
+      return new Response(res.body, { status: res.status, headers: { 'content-type': 'application/json' } })
+    }
+    const text = (await res.text().catch(() => '')).trim()
+    const said = text && !text.startsWith('<') ? `: ${text.slice(0, 300)}` : ''
+    return Response.json({ error: `${res.ok ? 'unexpected answer' : `HTTP ${res.status}`}${said}` }, { status: res.ok ? 502 : res.status })
   } catch (err) {
-    return Response.json({ error: `${o.unreachable}: ${(err as Error).message}` }, { status: 502 })
+    return Response.json({ error: `${o.unreachable}: ${upstreamFailure(err)}` }, { status: 502 })
   }
+}
+
+/**
+ * Why a fetch to the attestor failed, in words safe for a browser. The raw message can name the
+ * upstream URL ("Failed to parse URL from …"), which is deployment internals.
+ */
+export function upstreamFailure(err: unknown): string {
+  const name = (err as Error | undefined)?.name
+  if (name === 'TimeoutError' || name === 'AbortError') return 'no answer in time'
+  console.error('attestor request failed:', name ?? 'error')
+  return 'connection failed'
 }
