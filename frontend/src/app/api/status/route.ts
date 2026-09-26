@@ -1,7 +1,7 @@
 // What this deployment has configured. /demo and /prove label themselves LIVE or SIMULATED
 // from this answer. Nothing secret is returned.
 import type { ServiceStatus } from '@/lib/data/types'
-import { attestorUrl } from '@/lib/server/http'
+import { attestorUrl, upstreamFailure } from '@/lib/server/http'
 import { CREDIT_ID, GATE_ID } from '@/lib/server/solana'
 import { durable } from '@/lib/server/store'
 
@@ -22,12 +22,13 @@ export async function GET() {
         attestor = { ok: false, message: `attestor answered HTTP ${res.status}` }
       }
     } catch (err) {
-      attestor = { ok: false, message: `attestor unreachable: ${(err as Error).message}` }
+      attestor = { ok: false, message: `attestor unreachable: ${upstreamFailure(err)}` }
     }
   }
   const { SOLANA_RPC_URL, POF_POOL, RELAYER_SECRET_KEY, BORROWER_SECRET_KEY } = process.env
   const solana =
-    SOLANA_RPC_URL && POF_POOL && RELAYER_SECRET_KEY && BORROWER_SECRET_KEY
+    // the same rule as /api/relay: no relayer on serverless without the shared store
+    SOLANA_RPC_URL && POF_POOL && RELAYER_SECRET_KEY && BORROWER_SECRET_KEY && (durable || !process.env.VERCEL)
       ? { cluster: process.env.SOLANA_CLUSTER ?? 'devnet', gate: GATE_ID.toBase58(), credit: CREDIT_ID.toBase58(), pool: POF_POOL }
       : null
   const status: ServiceStatus = { attestor, demoProver, solana, durable }

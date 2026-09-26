@@ -114,9 +114,46 @@ export async function rateLimit(key: string, max: number, windowMs: number): Pro
   return limited(key, max, windowMs)
 }
 
+/**
+ * A spending budget: `overBudget` only reads the window's count, `spend` adds one. Used for
+ * things that cost the relayer SOL, so only transactions that actually landed are counted
+ * (a refused one never reaches the chain and costs nothing). Shared through Redis when it is
+ * configured, else per instance, like `rateLimit`.
+ */
+export async function overBudget(key: string, max: number, windowMs: number): Promise<boolean> {
+  if (durable) {
+    try {
+      const n = await redis<string | null>('GET', `vouch:budget:${key}:${Math.floor(Date.now() / windowMs)}`)
+      return Number(n ?? 0) >= max
+    } catch {
+      /* fall through to the per-instance count */
+    }
+  }
+  const h = spent.get(key)
+  return !!h && h.reset >= Date.now() && h.n >= max
+}
+
+export async function spend(key: string, windowMs: number): Promise<void> {
+  if (durable) {
+    const k = `vouch:budget:${key}:${Math.floor(Date.now() / windowMs)}`
+    try {
+      const n = await redis<number>('INCR', k)
+      if (n === 1) await redis('EXPIRE', k, Math.ceil(windowMs / 1000))
+    } catch {
+      /* counted per instance below as well */
+    }
+  }
+  const now = Date.now()
+  if (spent.size > MAX_TRACKED) for (const [k, h] of spent) if (h.reset < now) spent.delete(k)
+  const h = spent.get(key)
+  if (!h || h.reset < now) spent.set(key, { n: 1, reset: now + windowMs })
+  else h.n++
+}
+const spent = new Map<string, { n: number; reset: number }>()
+
 const hits = new Map<string, { n: number; reset: number }>()
 const MAX_TRACKED = 10_000
-/** The per-instance window behind `rateLimit`. Synchronous; api/relay still calls it directly. */
+/** The per-instance window behind `rateLimit`. */
 export function limited(key: string, max: number, windowMs: number): boolean {
   const now = Date.now()
   if (hits.size > MAX_TRACKED) for (const [k, h] of hits) if (h.reset < now) hits.delete(k)

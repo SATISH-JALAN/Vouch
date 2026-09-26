@@ -1,13 +1,13 @@
 // The demo relayer: pays for and sends the demo's Solana transactions with devnet keys held
 // here, so a visitor needs no wallet. It holds the borrower key the demo proof is bound to,
 // and a "stranger" key for the wrong-wallet run. Everything it does is on a public explorer.
-import { PublicKey } from '@solana/web3.js'
+import { Keypair, PublicKey, type Connection } from '@solana/web3.js'
 import { formatUnits } from '@/lib/server/units'
 import {
-  bs58, connection, decodePool, ed25519Ix, explain, explorer, keypairFrom, linePda, openLineIx, receiptPda, receiptSubject, send, submitIx, GATE_ID, CREDIT_ID,
+  connection, decodePool, ed25519Ix, explain, refusedByChain, explorer, keypairFrom, linePda, openLineIx, receiptPda, receiptSubject, send, submitIx, GATE_ID, CREDIT_ID,
 } from '@/lib/server/solana'
 import { readJson } from '@/lib/server/http'
-import { clientKey, rateLimit } from '@/lib/server/store'
+import { clientKey, durable, overBudget, rateLimit, spend } from '@/lib/server/store'
 import type { CreditLine, GateTransaction } from '@/lib/data/types'
 
 export const dynamic = 'force-dynamic'
@@ -18,20 +18,63 @@ type Body =
   | { action: 'submit'; attestation: { message: string; signature: string; attestor: string }; tamper?: boolean }
   | { action: 'open-line'; receipt: string; wallet?: 'borrower' | 'stranger' }
 
+// Every transaction that lands costs the relayer a fee plus rent (a ClaimReceipt, or a
+// CreditLine), and anyone can ask for one. Refused transactions fail in preflight and cost
+// nothing, so only the ones that land are counted: per client, and for the whole deployment.
+const HOUR = 3_600_000
+const PER_CLIENT_PER_HOUR = 20
+const ALL_PER_HOUR = 120
+
+// The 139-byte attestation message (pof-attest attestation_message): byte ranges.
+const SUBJECT = [13, 45] as const
+const BENEFICIARY = [45, 77] as const
+const AUDIENCE = [77, 109] as const
+
+let poolCache: { at: number; pool: ReturnType<typeof decodePool> } | null = null
+async function poolTerms(conn: Connection, pool: PublicKey) {
+  if (poolCache && Date.now() - poolCache.at < 60_000) return poolCache.pool
+  const acc = await conn.getAccountInfo(pool)
+  if (!acc || !acc.owner.equals(CREDIT_ID)) throw new Error('the configured pool (POF_POOL) is not a pof-credit pool')
+  poolCache = { at: Date.now(), pool: decodePool(acc.data) }
+  return poolCache.pool
+}
+
+async function budgetLeft(client: string): Promise<Response | null> {
+  if (await overBudget('relay:all', ALL_PER_HOUR, HOUR)) {
+    return Response.json({ error: 'the demo relayer has spent its hourly budget; try again later', failedAt: 'relayer' }, { status: 429 })
+  }
+  if (await overBudget(`relay:${client}`, PER_CLIENT_PER_HOUR, HOUR)) {
+    return Response.json({ error: 'you have used this hour’s demo transactions; try again later', failedAt: 'relayer' }, { status: 429 })
+  }
+  return null
+}
+async function spent(client: string) {
+  await Promise.all([spend('relay:all', HOUR), spend(`relay:${client}`, HOUR)])
+}
+
 function configured() {
   const { SOLANA_RPC_URL, POF_POOL, RELAYER_SECRET_KEY, BORROWER_SECRET_KEY } = process.env
-  return Boolean(SOLANA_RPC_URL && POF_POOL && RELAYER_SECRET_KEY && BORROWER_SECRET_KEY)
+  // On serverless, limits kept in memory are per instance and a burst gets many instances: the
+  // spend budget above means nothing without the shared store, so the relayer stays off.
+  return Boolean(SOLANA_RPC_URL && POF_POOL && RELAYER_SECRET_KEY && BORROWER_SECRET_KEY) && (durable || !process.env.VERCEL)
 }
 
 export async function POST(req: Request) {
   if (!configured()) return Response.json({ error: 'the Solana relayer is not configured on this deployment' }, { status: 503 })
-  if (await rateLimit(`relay:${clientKey(req)}`, 20, 60_000)) return Response.json({ error: 'slow down' }, { status: 429 })
+  const client = clientKey(req)
+  if (await rateLimit(`relay:${client}`, 20, 60_000)) return Response.json({ error: 'slow down' }, { status: 429 })
   const body = await readJson<Body>(req)
   if (body instanceof Response) return body
   if (!body || typeof body !== 'object') return Response.json({ error: 'bad request' }, { status: 400 })
 
-  const relayer = keypairFrom(process.env.RELAYER_SECRET_KEY, 'RELAYER_SECRET_KEY')
-  const borrower = keypairFrom(process.env.BORROWER_SECRET_KEY, 'BORROWER_SECRET_KEY')
+  let relayer: Keypair, borrower: Keypair
+  try {
+    relayer = keypairFrom(process.env.RELAYER_SECRET_KEY, 'RELAYER_SECRET_KEY')
+    borrower = keypairFrom(process.env.BORROWER_SECRET_KEY, 'BORROWER_SECRET_KEY')
+  } catch (err) {
+    console.error((err as Error).message)
+    return Response.json({ error: 'the Solana relayer is misconfigured on this deployment' }, { status: 503 })
+  }
   if (body.action === 'borrower') return Response.json({ borrower: borrower.publicKey.toBase58() })
 
   const conn = connection()
@@ -48,18 +91,33 @@ export async function POST(req: Request) {
     } catch {
       return Response.json({ error: 'malformed attestation: attestor is not a base58 public key' }, { status: 400 })
     }
-    if (message.length !== 139 || signature.length !== 64) return Response.json({ error: 'malformed attestation' }, { status: 400 })
+    if (message.length !== 139 || signature.length !== 64 || a.message.length !== 278 || a.signature.length !== 128) {
+      return Response.json({ error: 'malformed attestation' }, { status: 400 })
+    }
+    // This relayer pays only for the demo: a receipt the demo borrower can take to the demo pool.
+    // Anything else would be rent spent on someone else's account.
+    if (!borrower.publicKey.toBuffer().equals(message.subarray(...BENEFICIARY))) {
+      return Response.json({ error: 'this relayer only submits attestations bound to the demo borrower', failedAt: 'relayer' }, { status: 422 })
+    }
+    const over = await budgetLeft(client)
+    if (over) return over
     // "Flip one byte of the attestation": the claim value, changed after the attestor signed.
     const sent = Buffer.from(message)
     if (body.tamper) sent[110] = sent[110]! ^ 0x01
-    const subject = sent.subarray(13, 45)
+    const subject = sent.subarray(...SUBJECT)
     try {
+      const terms = await poolTerms(conn, new PublicKey(process.env.POF_POOL!))
+      if (!terms.audience.equals(message.subarray(...AUDIENCE))) {
+        return Response.json({ error: 'this relayer only submits attestations made for the demo pool’s audience', failedAt: 'relayer' }, { status: 422 })
+      }
       const sig = await send(conn, [ed25519Ix(attestor, sent, signature), submitIx(relayer.publicKey, sent)], [relayer])
-      const status = await conn.getSignatureStatus(sig)
+      await spent(client)
+      // it landed: a failed status read must not turn that into an error
+      const status = await conn.getSignatureStatus(sig).catch(() => null)
       const receipt = receiptPda(subject).toBase58()
       const tx: GateTransaction = {
         signature: sig,
-        slot: status.value?.slot ?? 0,
+        slot: status?.value?.slot ?? 0,
         receipt,
         explorer: explorer('tx', sig),
         instructions: [
@@ -70,6 +128,7 @@ export async function POST(req: Request) {
       return Response.json({ tx })
     } catch (err) {
       const why = explain(err)
+      if (!refusedByChain(err)) return Response.json({ error: `The transaction did not reach Solana: ${why}`, failedAt: 'relayer' }, { status: 502 })
       const failedAt = /already in use/i.test(why) || /already in use/i.test(String((err as Error).message))
         ? 'Instruction 1 · pof-gate · the receipt for this proof already exists'
         : body.tamper || /signature|precompile|0x2/i.test(why)
@@ -87,18 +146,36 @@ export async function POST(req: Request) {
   if (body.action === 'open-line') {
     if (typeof body.receipt !== 'string') return Response.json({ error: 'open-line needs a receipt address' }, { status: 400 })
     const pool = new PublicKey(process.env.POF_POOL!)
-    const who = body.wallet === 'stranger' ? keypairFrom(process.env.STRANGER_SECRET_KEY ?? bs58.encode(relayer.secretKey), 'STRANGER_SECRET_KEY') : borrower
+    // Without a configured stranger, a fresh key: it can never be a receipt's beneficiary. (Using
+    // the relayer here would let a receipt bound to the relayer open lines on the relayer's dime.)
+    // A stranger's attempt is refused in preflight and costs nothing; only the borrower's lands.
+    if (body.wallet !== 'stranger') {
+      const over = await budgetLeft(client)
+      if (over) return over
+    }
+    let receipt: PublicKey
     try {
-      const receipt = new PublicKey(body.receipt)
+      receipt = new PublicKey(body.receipt)
+    } catch {
+      return Response.json({ error: 'open-line needs a receipt address (base58)' }, { status: 400 })
+    }
+    try {
+      const who = body.wallet === 'stranger' ? (process.env.STRANGER_SECRET_KEY ? keypairFrom(process.env.STRANGER_SECRET_KEY, 'STRANGER_SECRET_KEY') : Keypair.generate()) : borrower
       const receiptAcc = await conn.getAccountInfo(receipt)
       if (!receiptAcc || !receiptAcc.owner.equals(GATE_ID)) {
         return Response.json({ error: 'There is no pof-gate receipt at this address. Submit the attestation first.', failedAt: 'pof-credit · open_line' }, { status: 422 })
       }
+      if (receiptAcc.data.length < 72) return Response.json({ error: 'That account is not a pof-gate receipt.', failedAt: 'pof-credit · open_line' }, { status: 422 })
+      // Only the demo's own receipts: the relayer pays the line's rent, so a receipt bound to any
+      // other account (the stranger's, say) must never open a line here.
+      if (!receiptAcc.data.subarray(40, 72).equals(borrower.publicKey.toBuffer())) {
+        return Response.json({ error: 'This relayer only opens lines against receipts bound to the demo borrower.', failedAt: 'relayer' }, { status: 422 })
+      }
       const subject = receiptSubject(receiptAcc.data)
       // the relayer pays the fee and the CreditLine's rent; the borrower only signs
+      const p = await poolTerms(conn, pool)
       const sig = await send(conn, [openLineIx(pool, who.publicKey, relayer.publicKey, receipt, subject)], [relayer, who])
-      const poolAcc = await conn.getAccountInfo(pool)
-      const p = decodePool(poolAcc!.data)
+      await spent(client)
       const line = linePda(subject, who.publicKey)
       const out: CreditLine = {
         account: line.toBase58(),
@@ -112,6 +189,7 @@ export async function POST(req: Request) {
       return Response.json({ line: out })
     } catch (err) {
       const why = explain(err)
+      if (!refusedByChain(err)) return Response.json({ error: `The transaction did not reach Solana: ${why}`, failedAt: 'relayer' }, { status: 502 })
       return Response.json({ error: why, failedAt: `pof-credit · open_line${body.wallet === 'stranger' ? ' (another wallet)' : ''}` }, { status: 422 })
     }
   }
