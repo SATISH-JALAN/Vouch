@@ -25,6 +25,56 @@ pub mod client;
 
 /// First block of the Ironwood pool on mainnet (NU6.3).
 pub const IRONWOOD_ACTIVATION_MAINNET: u32 = 3_428_143;
+/// First block of the Ironwood pool on testnet (NU6.3, ZIP 258).
+pub const IRONWOOD_ACTIVATION_TESTNET: u32 = 4_134_000;
+
+/// The networks anchors are rebuilt for, with the defaults each one needs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Network {
+    Mainnet,
+    Testnet,
+}
+
+impl Network {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "mainnet" => Some(Network::Mainnet),
+            "testnet" => Some(Network::Testnet),
+            _ => None,
+        }
+    }
+
+    /// The label written into snapshots and anchor records.
+    pub fn name(self) -> &'static str {
+        match self {
+            Network::Mainnet => "mainnet",
+            Network::Testnet => "testnet",
+        }
+    }
+
+    pub fn ironwood_activation(self) -> u32 {
+        match self {
+            Network::Mainnet => IRONWOOD_ACTIVATION_MAINNET,
+            Network::Testnet => IRONWOOD_ACTIVATION_TESTNET,
+        }
+    }
+
+    /// A public lightwalletd for this network.
+    pub fn default_server(self) -> &'static str {
+        match self {
+            Network::Mainnet => "https://zec.rocks:443",
+            Network::Testnet => "https://testnet.zec.rocks:443",
+        }
+    }
+
+    /// What lightwalletd reports as `chain_name` for this network.
+    pub fn chain_name(self) -> &'static str {
+        match self {
+            Network::Mainnet => "main",
+            Network::Testnet => "test",
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Action {
@@ -181,6 +231,17 @@ pub fn publish(path: &std::path::Path, record: AnchorRecord) -> anyhow::Result<V
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn networks_have_their_own_defaults() {
+        for n in [Network::Mainnet, Network::Testnet] {
+            assert_eq!(Network::parse(n.name()), Some(n));
+        }
+        assert_eq!(Network::parse("demo"), None);
+        assert_eq!(Network::Testnet.ironwood_activation(), 4_134_000);
+        assert_eq!(Network::Testnet.chain_name(), "test");
+        assert!(Network::Testnet.default_server().contains("testnet"));
+    }
 
     fn snapshot() -> Snapshot {
         let action = |i: u8| Action { nullifier: [i; 32], cmx: [i + 1; 32], epk: [i + 2; 32], ciphertext: [i + 3; 52] };

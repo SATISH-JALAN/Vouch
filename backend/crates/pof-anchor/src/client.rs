@@ -24,6 +24,19 @@ impl Lightwalletd {
         Ok(Lightwalletd { inner })
     }
 
+    /// Refuses a server on another chain, so a testnet scan can never be labelled mainnet.
+    pub async fn ensure_chain(&mut self, network: crate::Network) -> anyhow::Result<()> {
+        let info = self.inner.get_lightd_info(zcash_client_backend::proto::service::Empty {}).await?.into_inner();
+        anyhow::ensure!(
+            info.chain_name == network.chain_name(),
+            "this lightwalletd serves chain {:?}, not {} ({:?})",
+            info.chain_name,
+            network.name(),
+            network.chain_name()
+        );
+        Ok(())
+    }
+
     pub async fn tip(&mut self) -> anyhow::Result<u32> {
         Ok(self.inner.get_latest_block(ChainSpec {}).await?.into_inner().height as u32)
     }
