@@ -9,20 +9,26 @@ import { registerSlot } from '@/lib/through'
 
 /**
  * The iris handoff (MOTION.md §5.1). The whole scene narrows to one sealed fact.
- * A pinned, scrubbed stage: the copy lifts away, the painting closes like an aperture onto the wax
+ * A pinned, scrubbed stage: the copy lifts away, the picture closes like an aperture onto the wax
  * seal while it pushes in on it (never past IRIS.pushMax: the source is soft beyond that), and the
- * ground behind turns from shielded to paper, so the hero hands over into the page below.
+ * closing circle glides to rest beside the coda, whose redacted lines then open. Only then does the
+ * pin let go; the paper section below then rises against a hard edge.
+ *
+ * The loop is a crop of the painting (heroArt `loop`), so the painting is laid out exactly under it:
+ * the loop freezes where it is as the pin starts and is itself what the iris closes on, and the
+ * sharper painting shows through only once the circle is small. Nothing ever visibly swaps.
  *
  * Markup, inside the section passed in (whose own background is the ground):
- *   [data-iris]         the frame that is clipped
- *   [data-iris-plate]   the painting's plate, laid out here by hand so the seal's screen position is known
- *   [data-iris-detail]  optional sharper crop on the plate, faded in as it pushes in
- *   [data-iris-video]   the loop; held (faded out, paused) while the still does the work
- *   [data-iris-scrim]   the flat scrim, lifted with the copy
- *   [data-iris-lift]    copy that lifts away first, in DOM order
- *   [data-iris-slot]    placed over the end circle: the through-line object's first slot. As the
- *                       circle closes, the painted circle hands over to the vector seal there
- * The section's data-band follows the ground, so the header and cursor read it as paper once it is.
+ *   [data-iris]            the frame that is clipped
+ *   [data-iris-plate]      the painting's plate, laid out here by hand so the seal's screen position is known
+ *   [data-iris-detail]     optional sharper crop on the plate, faded in as it pushes in
+ *   [data-iris-video]      the loop (data-clip names which one)
+ *   [data-iris-scrim]      the flat scrim, lifted with the copy
+ *   [data-iris-lift]       copy that lifts away first, in DOM order
+ *   [data-iris-slot]       placed exactly over the painted wax where it comes to rest: the through-line
+ *                          object's first slot. The vector seal replaces the wax there, in one frame
+ *   [data-iris-coda]       hidden unless the iris runs; its [data-iris-coda-text] decides where the
+ *                          circle rests, its [data-reveal] bars open once it has
  * Built only once `ready` (the preloader has handed off). Reduced motion: nothing runs, the hero
  * stays exactly as authored and nothing pins.
  */
@@ -55,7 +61,6 @@ export function useIris(ref: RefObject<HTMLElement | null>, ready: boolean) {
 }
 
 const clamp = (min: number, max: number, v: number) => Math.min(max, Math.max(min, v))
-const token = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 
 function build(section: HTMLElement, desktop: boolean) {
   return gsap.context(() => {
@@ -66,61 +71,133 @@ function build(section: HTMLElement, desktop: boolean) {
     const lifts = gsap.utils.toArray<HTMLElement>('[data-iris-lift]', section)
     const details = section.querySelectorAll('[data-iris-detail]')
     const art = window.matchMedia(HERO_WIDE_MQ).matches ? HERO_WIDE : HERO_PORTRAIT
-
-    // lay the painting out by hand, at exactly the framing object-cover gave it at rest
     const W = frame.clientWidth
     const H = frame.clientHeight
-    const s = Math.max(W / art.w, H / art.h)
+
+    // the loop, when it is the one registered on this painting: its framing is then the picture, and
+    // the painting is laid out exactly under it
+    const clip = section.querySelector<HTMLVideoElement>('[data-iris-video]')
+    const loop = clip && art.loop && clip.dataset.clip === art.loop.clip ? art.loop : null
+    const video = loop ? clip : null
+
+    // lay the painting out by hand: under the loop, or at exactly the framing object-cover gave it at rest
+    let s: number
+    let ox: number
+    let oy: number
+    let sv = 0
+    let vx = 0
+    let vy = 0
+    if (loop) {
+      sv = Math.max(W / loop.w, H / loop.h)
+      vx = (W - loop.w * sv) / 2
+      vy = (H - loop.h * sv) / 2
+      s = sv / loop.k
+      ox = vx - loop.at[0] * s
+      oy = vy - loop.at[1] * s
+    } else {
+      s = Math.max(W / art.w, H / art.h)
+      ox = (W - art.w * s) * art.position[0]
+      oy = (H - art.h * s) * art.position[1]
+    }
     const rw = art.w * s
     const rh = art.h * s
-    const ox = (W - rw) * art.position[0]
-    const oy = (H - rh) * art.position[1]
     const px = art.seal[0] * rw
     const py = art.seal[1] * rh
     gsap.set(plate, { left: ox, top: oy, width: rw, height: rh, right: 'auto', bottom: 'auto', transformOrigin: `${px}px ${py}px` })
-
     const sx = ox + px
     const sy = oy + py
-    const rMax = Math.hypot(Math.max(sx, W - sx), Math.max(sy, H - sy)) + 4
+    if (video && loop) {
+      // the same framing object-cover gives it, set by hand so it can push in about the same point.
+      // Its box is wider than the viewport: the base styles' max-width: 100% would crop it off-centre
+      gsap.set(video, {
+        left: vx,
+        top: vy,
+        width: loop.w * sv,
+        height: loop.h * sv,
+        maxWidth: 'none',
+        right: 'auto',
+        bottom: 'auto',
+        transformOrigin: `${sx - vx}px ${sy - vy}px`,
+        transition: 'none',
+      })
+    }
+
     const z = desktop ? IRIS.pushMax : IRIS.pushMobile
     const rEnd = clamp(desktop ? IRIS.endMin : IRIS.endMinMobile, IRIS.endMax, art.card * s * z * IRIS.endFrame)
-    const circle = (r: number) => `circle(${r.toFixed(1)}px at ${sx.toFixed(1)}px ${sy.toFixed(1)}px)`
-    const slot = section.querySelector<HTMLElement>('[data-iris-slot]')
-    if (slot) gsap.set(slot, { left: sx - rEnd, top: sy - rEnd, width: rEnd * 2, height: rEnd * 2 })
 
+    // where the closed circle comes to rest, decided by the coda's text: on desktop left of it and
+    // level with it, on smaller screens centred in the dark above it
+    const coda = section.querySelector<HTMLElement>('[data-iris-coda]')
+    const codaText = coda?.querySelector<HTMLElement>('[data-iris-coda-text]') ?? null
+    let tx = sx
+    let ty = sy
+    if (coda && codaText) {
+      const box = section.getBoundingClientRect()
+      const t = codaText.getBoundingClientRect()
+      if (desktop) {
+        tx = Math.max(rEnd + 24, t.left - box.left - IRIS.codaGap - rEnd)
+        ty = t.top - box.top + t.height / 2
+      } else {
+        tx = W / 2
+        ty = Math.max(rEnd + 88, (t.top - box.top + 64) / 2)
+      }
+    }
+    const rMax = Math.hypot(Math.max(sx, W - sx), Math.max(sy, H - sy)) + 4
+    const circle = (r: number, x: number, y: number) => `circle(${r.toFixed(1)}px at ${x.toFixed(1)}px ${y.toFixed(1)}px)`
+
+    // the vector seal takes over on the painted wax itself: same centre, same size once pushed in.
+    // The seal outline fills 88% of its box, so the box is that much larger than the wax
+    const slot = section.querySelector<HTMLElement>('[data-iris-slot]')
+    const waxBox = (art.wax * s * z) / 0.88
+    if (slot) gsap.set(slot, { left: tx - waxBox / 2, top: ty - waxBox / 2, width: waxBox, height: waxBox })
+
+    // the aperture closes on the card while the card glides to where it rests: circle, painting and
+    // loop move together on one curve, so the card never slides inside the circle
+    const ap = { r: rMax, x: sx, y: sy }
+    const aperture = () => gsap.set(frame, { clipPath: circle(ap.r, ap.x, ap.y) })
+    aperture()
+    const close = { duration: 3.6, ease: 'power2.inOut' }
+    const push = { scale: z, x: tx - sx, y: ty - sy, ...close }
     const tl = gsap.timeline({ defaults: { ease: EASE.scrub } })
     tl.to(lifts, { y: -48, autoAlpha: 0, duration: 0.9, stagger: 0.12, ease: EASE.leave }, 0)
       .to(scrim, { opacity: 0, duration: 1.2 }, 0.2)
-      .fromTo(frame, { clipPath: circle(rMax) }, { clipPath: circle(rEnd), duration: 3.6, ease: EASE.camera }, 0.4)
-      .fromTo(plate, { scale: 1 }, { scale: z, duration: 3.8, ease: 'power2.inOut' }, 0.4)
+      // (as numbers: a clip-path string whose centre moves too is not interpolated, it jumps)
+      .fromTo(ap, { r: rMax, x: sx, y: sy }, { r: rEnd, x: tx, y: ty, ...close, onUpdate: aperture }, 0.4)
+      .fromTo(plate, { scale: 1, x: 0, y: 0 }, push, 0.4)
       .to(details, { opacity: 1, duration: 1.2 }, 1.6)
-      // late, and quick: shielded to paper behind the iris. No hold after it: the pin lets go as the
-      // ground lands, so the next section is already rising while the circle carries on
-      .fromTo(section, { backgroundColor: token('--color-shielded') }, { backgroundColor: token('--color-bone'), duration: 0.5, ease: 'power2.inOut' }, 3.6)
-    const GROUND_AT = 3.85 // the switch's midpoint: from here the section reads as paper
-    const HANDOVER = 3.7 // from here to the end, the painted circle becomes the vector seal
-
-    let paper = false
-    const setGround = (p: boolean) => {
-      if (p === paper) return
-      paper = p
-      section.dataset.band = p ? 'paper' : 'shielded'
-      window.dispatchEvent(new Event('vouch:ground'))
+    if (video) {
+      tl.fromTo(video, { scale: 1, x: 0, y: 0 }, push, 0.4)
+        // the loop is softer pushed in: once the circle is small, the sharper painting under it shows through
+        .to(video, { opacity: 0, duration: 0.8, ease: 'none' }, 3.0)
     }
-    // the scrubbed playhead lags the scroll, so follow the timeline, not the trigger
-    tl.eventCallback('onUpdate', () => setGround(tl.time() >= GROUND_AT))
+    // then the coda: it arrives redacted beside the sealed card and its bars open line by line, with a
+    // beat of all of it there before the pin lets go
+    if (coda) {
+      const bars = Array.from(coda.querySelectorAll<HTMLElement>('[data-reveal]'))
+      const label = coda.querySelector('[data-iris-coda-label]')
+      gsap.set(bars, { scaleX: 1, transformOrigin: 'right center' })
+      tl.fromTo(coda, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.4, ease: 'none' }, 3.95)
+        .to(bars, { scaleX: 0, duration: 0.7, stagger: 0.3, ease: EASE.leave }, 4.3)
+        .fromTo(label, { autoAlpha: 0, y: 8 }, { autoAlpha: 1, y: 0, duration: 0.5 }, 5.4)
+        .to({}, { duration: 0.6 })
+    }
+    // the stage ends on the dark: no ground tween (a dark-to-paper blend passes through mud)
 
-    // the loop is framed differently from the still: hand over to the still as the pin starts
-    const video = () => section.querySelector<HTMLVideoElement>('[data-iris-video]')
+    // the registered loop freezes where it is as the pin starts (it is the picture, so nothing changes)
+    // and plays again at the top. An unregistered one hands over to the laid-out still instead
     const hold = (on: boolean) => {
-      const v = video()
+      const v = clip
       if (!v) return
+      if (on) v.dataset.held = '1'
+      else delete v.dataset.held
+      if (video) {
+        if (on) v.pause()
+        else void v.play().catch(() => {})
+        return
+      }
       gsap.set(v, { transition: 'none' })
-      if (on) {
-        v.dataset.held = '1'
-        gsap.to(v, { opacity: 0, duration: IRIS.videoFade, ease: 'none', overwrite: true, onComplete: () => v.pause() })
-      } else {
-        delete v.dataset.held
+      if (on) gsap.to(v, { opacity: 0, duration: IRIS.videoFade, ease: 'none', overwrite: true, onComplete: () => v.pause() })
+      else {
         void v.play().catch(() => {})
         gsap.to(v, { opacity: 1, duration: IRIS.videoFade, ease: 'none', overwrite: true })
       }
@@ -137,11 +214,13 @@ function build(section: HTMLElement, desktop: boolean) {
       onEnter: () => hold(true),
       onLeaveBack: () => hold(false),
     })
+
     // layers only while the stage can be seen (§8): the hero is on screen from the first paint, so they
     // are promoted from the start (creating them as the pin began cost a frame). They are released
     // once the hero has scrolled fully away: dropping them as the pin let go re-rasterised the painting
     // in the same frame as the unpin
-    const promote = (on: boolean) => gsap.set([frame, plate], { willChange: on ? 'transform, clip-path' : 'auto' })
+    const layers = video ? [frame, plate, video] : [frame, plate]
+    const promote = (on: boolean) => gsap.set(layers, { willChange: on ? 'transform, clip-path' : 'auto' })
     promote(true)
     ScrollTrigger.create({ start: () => st.end + window.innerHeight, onEnter: () => promote(false), onLeaveBack: () => promote(true) })
     // the pin's first frames must not wait on a decode: it is the LCP image, so this is normally a no-op
@@ -151,19 +230,25 @@ function build(section: HTMLElement, desktop: boolean) {
       ? registerSlot(0, {
           el: slot,
           shape: 'seal',
-          range: () => [st.start + (st.end - st.start) * (HANDOVER / tl.duration()), st.end],
-          crossfade: (v) => gsap.set(frame, { opacity: 1 - v }),
+          // a waypoint: the painted wax stays the seal, the object only grows out of it on its way
+          bare: true,
+          // it leaves from here once the pin lets go, and rides up with the dark hero for a short stretch
+          range: () => [st.end, st.end + window.innerHeight * 0.3],
+          // the scrubbed stage lags the scroll: take over only once it has come to rest
+          ready: () => tl.progress() > 0.999,
         })
       : null
 
     return () => {
       unslot?.()
-      gsap.set(frame, { clearProps: 'opacity' })
-      setGround(false)
-      const v = video()
-      if (v) {
-        delete v.dataset.held
-        gsap.set(v, { clearProps: 'opacity,transition' })
+      gsap.set(frame, { clearProps: 'clipPath' })
+      if (clip) {
+        delete clip.dataset.held
+        gsap.set(clip, { clearProps: 'opacity,transition,left,top,width,height,maxWidth,right,bottom,transform,transformOrigin,willChange' })
+      }
+      if (coda) {
+        gsap.set(coda, { clearProps: 'opacity,visibility' })
+        gsap.set(coda.querySelectorAll('[data-reveal]'), { clearProps: 'transform,transformOrigin' })
       }
     }
   }, section)

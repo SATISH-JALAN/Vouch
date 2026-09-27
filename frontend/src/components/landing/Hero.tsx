@@ -61,6 +61,30 @@ export function Hero() {
       <ScrollCue className="absolute bottom-[clamp(56px,7vw,112px)] right-[var(--gutter)] z-10 hidden text-on-dark/80 lg:block" />
       {/* where the iris ends: the through-line object takes over from the painting here */}
       <span data-iris-slot="" aria-hidden className="pointer-events-none absolute" />
+      {/* the coda: beside the closed circle, only while the iris runs (it restates the headline, so it is hidden from AT) */}
+      <div data-iris-coda="" aria-hidden className="pointer-events-none invisible absolute inset-0 z-[5]">
+        <div className="wrap grid-12 h-full content-end pb-[16vh] lg:content-center lg:pb-0">
+          <div data-iris-coda-text="" className="col-span-12 lg:col-span-6 lg:col-start-7">
+            <p className="t-display-l t-hero text-on-dark">
+              <span className="block">
+                <Redact reveal tone="on-dark">One card.</Redact>{' '}
+                <Redact reveal tone="on-dark" className="text-seal">
+                  One seal.
+                </Redact>
+              </span>
+              <span className="block">
+                <Redact reveal tone="on-dark">Nothing else</Redact>{' '}
+                <span className="lg:block">
+                  <Redact reveal tone="on-dark">leaves the room.</Redact>
+                </span>
+              </span>
+            </p>
+            <p data-iris-coda-label="" className="t-data-sm mt-8 uppercase tracking-[0.16em] text-on-dark/70">
+              1 fact disclosed · 0 revealed
+            </p>
+          </div>
+        </div>
+      </div>
 
       <div className="wrap grid-12 relative flex-1 content-start items-baseline pb-[clamp(56px,7vw,112px)] pt-[clamp(128px,14vw,200px)] md:content-end">
         <div className="col-span-12 lg:col-span-8">

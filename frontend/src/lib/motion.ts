@@ -58,8 +58,8 @@ export const MAGNET = {
 
 /** The iris handoff (§5.1). Pin lengths are scroll distance past the hero's top. */
 export const IRIS = {
-  pinDesktop: '+=180%',
-  pinMobile: '+=110%',
+  pinDesktop: '+=230%',
+  pinMobile: '+=175%',
   scrub: 0.65,
   /** the painting is only 1536px wide: push in no further than this, and end on a larger circle */
   pushMax: 1.8,
@@ -70,7 +70,9 @@ export const IRIS = {
   endFrame: 0.62,
   endMin: 44,
   endMax: 120,
-  /** the video hands over to the laid-out still as the pin starts, and back at the top */
+  /** where the closed circle comes to rest beside the coda: this gap (px) left of its text on desktop */
+  codaGap: 96,
+  /** without a registered loop, the video hands over to the laid-out still as the pin starts */
   videoFade: 0.3,
 } as const
 

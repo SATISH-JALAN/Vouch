@@ -64,6 +64,7 @@ export function HeroMedia() {
           onPlaying={() => setPlaying(true)}
           aria-hidden
           data-iris-video=""
+          data-clip={clip}
         >
           <source src={`/visuals/${clip}.webm`} type="video/webm" />
           <source src={`/visuals/${clip}.mp4`} type="video/mp4" />
