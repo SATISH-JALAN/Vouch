@@ -12,7 +12,9 @@ export function startLenis(): Lenis {
   instance = new Lenis({ lerp: 0.085, autoRaf: false })
   instance.on('scroll', ScrollTrigger.update)
   tick = (t: number) => instance?.raf(t * 1000)
-  gsap.ticker.add(tick)
+  // first in every frame: anything else on the ticker (the through-line object, the cursor) reads
+  // this frame's scroll, never the last one's, so a fixed layer never trails the page by a frame
+  gsap.ticker.add(tick, false, true)
   gsap.ticker.lagSmoothing(0)
   return instance
 }
