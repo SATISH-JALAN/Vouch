@@ -3,7 +3,7 @@
 import { useRef } from 'react'
 import type { VerificationResult, Verdict as V } from '@/lib/data/types'
 import { gsap, useGSAP } from '@/lib/gsap'
-import { D, E, motionOK } from '@/lib/motion'
+import { D, E, EASE, VERIFY, motionOK } from '@/lib/motion'
 import { claimParts, daysBetween, formatDate, formatInt, formatStamp, plural } from '@/lib/format'
 import { Mark, type MarkState, type MarkTone } from '@/components/brand/Mark'
 import { ClaimLine } from './ClaimLine'
@@ -56,8 +56,12 @@ export function present(v: V, now: number): Presentation {
 }
 
 /**
- * The most important surface on the site. Text never animates. Only the mark and the border
- * change state: valid settles, invalid snaps. (12.6) Callers own the aria-live region around it, so it
+ * The most important surface on the site, and its verify event (MOTION.md §7.1): one physical event,
+ * not a state swap. Valid: the seal stamps down with one press shadow and one ripple, the border takes
+ * the valid colour, and the disclosed value's bar lifts as it turns seal red. Invalid: the border
+ * snaps to the invalid colour, one 4px nudge, the strike draws, the reason rises into place. Expired:
+ * the seal drains of colour and a strike draws across the date. The hashes settle out of hex once.
+ * Every withheld field stays barred and still. Callers own the aria-live region around it, so it
  * exists before the first verdict arrives.
  */
 export function Verdict({ result, audienceId, className }: { result: VerificationResult; audienceId?: string; className?: string }) {
@@ -72,20 +76,37 @@ export function Verdict({ result, audienceId, className }: { result: Verificatio
       if (!el || !motionOK()) return
       const line = el.querySelector('.v-line')
       const strike = el.querySelector('.v-strike')
+      const mark = el.querySelector('[data-verdict-mark] svg')
+      const ripple = el.querySelector('[data-verdict-ripple]')
       const tl = gsap.timeline()
       if (p.tone === 'valid') {
-        tl.fromTo(line, { attr: { 'fill-opacity': 1, 'stroke-opacity': 0 } }, { attr: { 'fill-opacity': 0, 'stroke-opacity': 1 }, duration: D.sm, ease: E.snap })
-          .fromTo(el, { borderColor: BORDER.neutral }, { borderColor: BORDER.valid, duration: D.sm, ease: E.out }, '<')
+        const bar = el.querySelector('[data-claim-bar]')
+        const value = el.querySelector('[data-claim-value]')
+        const ink = getComputedStyle(el).color
+        const seal = getComputedStyle(document.documentElement).getPropertyValue('--color-seal').trim()
+        // the stamp: down hard with one frame of press shadow, then a single faint ring
+        tl.fromTo(mark, { scale: VERIFY.stampFrom, filter: 'drop-shadow(0 3px 0 rgb(26 29 27 / 0.28))' }, { scale: 1, filter: 'drop-shadow(0 0 0 rgb(26 29 27 / 0))', duration: VERIFY.stamp, ease: 'power3.out', transformOrigin: '50% 50%' })
+          .fromTo(ripple, { scale: 1, opacity: 0.45 }, { scale: 1.7, opacity: 0, duration: VERIFY.ripple, ease: 'power2.out' }, VERIFY.stamp * 0.6)
+          .fromTo(line, { attr: { 'fill-opacity': 1, 'stroke-opacity': 0 } }, { attr: { 'fill-opacity': 0, 'stroke-opacity': 1 }, duration: D.sm, ease: E.snap }, 0.1)
+          .fromTo(el, { borderColor: BORDER.neutral }, { borderColor: BORDER.valid, duration: D.sm, ease: E.out }, 0)
+          // the one fact is disclosed: its bar lifts, and it turns seal red late and fast
+          .fromTo(bar, { scaleX: 1 }, { scaleX: 0, duration: 0.5, ease: EASE.arrive }, 0.25)
+          .fromTo(value, { color: ink }, { color: seal, duration: 0.15 }, 0.45)
       } else if (p.tone === 'invalid') {
-        // abrupt: no ease-out, no bounce
+        const reason = el.querySelector('[data-verdict-reason]')
+        // abrupt: no ease-out on the colour, one nudge and never a shake loop
         tl.set(line, { attr: { 'fill-opacity': 0, 'stroke-opacity': 1 } })
-          .fromTo(el, { borderColor: BORDER.neutral }, { borderColor: BORDER.invalid, duration: D.xs, ease: 'none' }, '<')
-          .to(el, { x: -2, duration: 0.04, yoyo: true, repeat: 3, ease: 'none' }, '<')
-          .fromTo(strike, { drawSVG: '0%' }, { drawSVG: '100%', duration: D.xs, ease: 'none' }, '<')
+          .fromTo(el, { borderColor: BORDER.neutral }, { borderColor: BORDER.invalid, duration: D.xs, ease: 'none' }, 0)
+          .fromTo(el, { x: -VERIFY.nudge }, { x: 0, duration: 0.35, ease: 'power3.out' }, 0)
+          .fromTo(strike, { drawSVG: '0%' }, { drawSVG: '100%', duration: D.xs, ease: 'none' }, 0)
+          .fromTo(reason, { yPercent: 105 }, { yPercent: 0, duration: D.sm, ease: EASE.arrive }, 0.1)
       } else if (p.tone === 'expired') {
+        const date = el.querySelector('[data-date-strike]')
         tl.fromTo(line, { attr: { 'fill-opacity': 1, 'stroke-opacity': 0 } }, { attr: { 'fill-opacity': 0, 'stroke-opacity': 1 }, duration: D.sm, ease: E.out })
           .fromTo(el, { borderColor: BORDER.neutral }, { borderColor: BORDER.expired, duration: D.sm, ease: E.out }, '<')
+          .fromTo(mark, { filter: 'saturate(1)' }, { filter: 'saturate(0.2)', duration: D.md, ease: E.out }, '<')
           .fromTo(strike, { drawSVG: '0%' }, { drawSVG: '100%', duration: D.sm, ease: E.out }, '-=0.2')
+          .fromTo(date, { scaleX: 0 }, { scaleX: 1, duration: D.sm, ease: EASE.arrive }, '-=0.15')
       }
     },
     { scope: root, dependencies: [result], revertOnUpdate: true },
@@ -101,7 +122,10 @@ export function Verdict({ result, audienceId, className }: { result: Verificatio
       style={{ borderColor: BORDER[p.tone] }}
     >
       <div className="flex flex-col gap-6 sm:flex-row sm:gap-8">
-        <Mark size={56} state={p.mark.state} tone={p.mark.tone} className="shrink-0" />
+        <span data-verdict-mark="" className="relative block shrink-0 self-start">
+          <Mark size={56} state={p.mark.state} tone={p.mark.tone} />
+          {p.tone === 'valid' && <span data-verdict-ripple="" className="pointer-events-none absolute inset-0 rounded-full border border-valid opacity-0" aria-hidden />}
+        </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
             <p className="t-display-m text-ink">{p.word}</p>
@@ -117,8 +141,23 @@ export function Verdict({ result, audienceId, className }: { result: Verificatio
                 {result.anchor?.network === 'testnet' && ' · Zcash testnet anchor (TAZ, no monetary value)'}
               </p>
             </div>
+          ) : v.kind === 'Expired' ? (
+            <p className="t-data mt-4 max-w-[72ch] text-ink-2">
+              It stopped verifying at{' '}
+              <span className="relative inline-block">
+                {formatStamp(v.at)}
+                <span data-date-strike="" className="absolute inset-x-0 top-1/2 h-px origin-left bg-current" aria-hidden />
+              </span>
+              . Nothing here is permanent.
+            </p>
           ) : (
-            p.detail && <p className="t-data mt-4 max-w-[72ch] text-ink-2">{p.detail}</p>
+            p.detail && (
+              <p className="t-data mt-4 max-w-[72ch] overflow-hidden text-ink-2">
+                <span data-verdict-reason="" className="block">
+                  {p.detail}
+                </span>
+              </p>
+            )
           )}
 
           {env && v.kind !== 'Valid' && (
@@ -132,18 +171,18 @@ export function Verdict({ result, audienceId, className }: { result: Verificatio
               <dt>ANCHOR</dt>
               <dd className="text-ink-2">
                 block {formatInt(env.anchor.height)}
-                {result.anchor && ` (${result.anchor.network})`} · notes <Hash value={env.anchor.ncRoot} head={8} tail={6} label="note-commitment root" /> ·
-                nullifiers <Hash value={env.anchor.nfRoot} head={8} tail={6} label="nullifier-set root" />
+                {result.anchor && ` (${result.anchor.network})`} · notes <Hash value={env.anchor.ncRoot} head={8} tail={6} label="note-commitment root" scramble /> ·
+                nullifiers <Hash value={env.anchor.nfRoot} head={8} tail={6} label="nullifier-set root" scramble />
               </dd>
               <dt>AUDIENCE</dt>
               <dd className="text-ink-2">
-                <Hash value={env.audience} head={8} tail={6} label="audience hash" />
+                <Hash value={env.audience} head={8} tail={6} label="audience hash" scramble />
                 {v.kind === 'Valid' && audienceId && <span> · blake2b of “{audienceId}”</span>}
               </dd>
               <dt>FILE</dt>
               <dd className="text-ink-2">
                 {formatInt(result.sizeBytes)} bytes · checksum{' '}
-                {result.checksum ? <Hash value={result.checksum} head={8} tail={6} label="checksum" /> : '—'} · checked in {result.elapsedMs.toFixed(1)} ms
+                {result.checksum ? <Hash value={result.checksum} head={8} tail={6} label="checksum" scramble /> : '—'} · checked in {result.elapsedMs.toFixed(1)} ms
               </dd>
             </dl>
           )}

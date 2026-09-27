@@ -407,6 +407,59 @@ textarea.field { height: auto; padding-block: 12px; resize: vertical; }
 /* the header's logo crossfades with the header when the ground changes (the mark colours itself inline) */
 .nav-mark svg, .nav-mark .wordmark { transition: color 0.3s; }
 
+/* ── choices, fields and dropzones (§6.4) ─────────────────────────────── */
+
+/* a chip, card or segment that can be chosen: the selection fills from the centre, and empties back */
+.pick { position: relative; isolation: isolate; }
+.pick::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--pick-fill, var(--color-bone-2));
+  transform: scale(0);
+  opacity: 0;
+  transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s;
+  pointer-events: none;
+}
+.pick[aria-pressed='true']::before, .pick[data-on='true']::before { transform: none; opacity: 1; }
+/* segmented controls fill with ink, and their label turns over with it */
+.pick-ink { --pick-fill: var(--color-ink); transition: color 0.2s 0.06s; }
+/* a check that draws on when chosen and undraws when not */
+.pick-check path { stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+[data-on='true'] > .pick-check path, [data-on='true'] .pick-check path { stroke-dashoffset: 0; transition-delay: 0.08s; }
+.hash-check path { stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+.hash-check.is-on path { stroke-dashoffset: 0; }
+
+/* a field that refuses its input says so in the invalid colour (lib/forms.ts nudges it, once) */
+.field[aria-invalid='true'] { border-color: var(--color-invalid); }
+
+/* a dropzone lifts and its border marches while a file is over it */
+[data-dropzone] { position: relative; transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s, border-color 0.2s; }
+[data-dropzone][data-dragging='true'] { transform: translateY(-2px); border-color: transparent; }
+.drop-march { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; opacity: 0; transition: opacity 0.2s; pointer-events: none; color: var(--color-ink); }
+[data-dropzone][data-dragging='true'] .drop-march { opacity: 1; }
+[data-dropzone][data-dragging='true'] .drop-march rect { animation: march 0.6s linear infinite; }
+@keyframes march { to { stroke-dashoffset: -12; } }
+/* the dropped file's name, flying from the drop point to where it lands */
+.drop-token {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 70;
+  padding: 4px 10px;
+  border: 1px solid var(--color-ink);
+  border-radius: var(--radius-chip);
+  background: var(--color-bone);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 /* ── custom cursor ──────────────────────────────────────────────────────── */
 
 .has-cursor, .has-cursor a, .has-cursor button, .has-cursor label, .has-cursor [role='button'] { cursor: none; }

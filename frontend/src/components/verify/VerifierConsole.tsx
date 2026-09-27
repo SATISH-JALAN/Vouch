@@ -14,8 +14,10 @@ import { Verdict, present } from '@/components/ui/Verdict'
 import { RevealTable } from '@/components/ui/RevealTable'
 import { DataTable } from '@/components/ui/DataTable'
 import { Chip, cx, Panel } from '@/components/ui/primitives'
-import { useCopy } from '@/components/ui/useCopy'
 import { SourceNote } from './SourceNote'
+import { flyToken } from '@/lib/dropToken'
+import { DropMarch, PickBox, PickCheck } from '@/components/motion/Pick'
+import { CopyButton } from '@/components/motion/CopyButton'
 import { BtnLabel } from '@/components/motion/BtnLabel'
 
 const MAX_BYTES = 1024 * 1024
@@ -56,6 +58,7 @@ export function VerifierConsole() {
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  const pasteRef = useRef<HTMLTextAreaElement>(null)
   // only the latest run may land: an older one finishing late must not overwrite it
   const seq = useRef(0)
 
@@ -142,7 +145,10 @@ export function VerifierConsole() {
   const onDrop = (e: DragEvent) => {
     e.preventDefault()
     setDragging(false)
-    void onFile(e.dataTransfer.files[0])
+    const file = e.dataTransfer.files[0]
+    // the file's name flies from the drop point into the field its contents fill
+    if (file) flyToken(file.name, { x: e.clientX, y: e.clientY }, pasteRef.current)
+    void onFile(file)
   }
 
   const clear = () => {
@@ -166,6 +172,8 @@ export function VerifierConsole() {
         <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
           {/* dropzone */}
           <label
+            data-dropzone=""
+            data-dragging={dragging}
             onDragOver={(e) => {
               e.preventDefault()
               setDragging(true)
@@ -177,9 +185,10 @@ export function VerifierConsole() {
             className={cx(
               'flex min-h-[168px] flex-col items-start justify-between gap-6 rounded-panel border border-dashed p-5 transition-colors duration-200 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-[3px] has-[:focus-visible]:outline-seal',
               busy ? 'cursor-wait' : 'hover:border-ink hover:bg-bone-2',
-              dragging ? 'border-ink bg-bone-2' : 'border-border',
+              dragging ? 'bg-bone-2' : 'border-border',
             )}
           >
+            <DropMarch />
             <span className="t-eyebrow text-ink-3">DROP A .POF FILE</span>
             <span>
               <span className="t-title block">Drop a proof here, or choose a file.</span>
@@ -192,6 +201,7 @@ export function VerifierConsole() {
             <label className="flex flex-col gap-2">
               <span className="t-eyebrow text-ink-3">OR PASTE BASE64URL</span>
               <textarea
+                ref={pasteRef}
                 className="field t-data-sm min-h-[108px] break-all"
                 spellCheck={false}
                 readOnly={busy}
@@ -243,10 +253,7 @@ export function VerifierConsole() {
                 disabled={busy}
                 onClick={() => void runPreset(p)}
                 aria-pressed={active === p.id}
-                className={cx(
-                  'btn btn-sm border transition-[transform,border-color,background-color] duration-200 hover:-translate-y-px hover:border-ink',
-                  active === p.id ? 'border-ink bg-bone-2' : 'border-border',
-                )}
+                className={cx('pick btn btn-sm border hover:border-ink', active === p.id ? 'border-ink' : 'border-border')}
               >
                 {p.label}
               </button>
@@ -294,8 +301,6 @@ export function VerifierConsole() {
 function ResultDetail({ result, text, audience }: Checked) {
   const tone = present(result.verdict, result.now).tone
   const failColor = tone === 'expired' ? 'text-expired' : tone === 'invalid' ? 'text-invalid' : 'text-ink'
-  const { copied, copy } = useCopy()
-
   const pof = useMemo(() => {
     const bytes = text ? fromBase64Url(text) : null
     return bytes && isPofBinary(bytes) ? bytes : null
@@ -352,12 +357,8 @@ function ResultDetail({ result, text, audience }: Checked) {
               THE FILE · {formatInt(result.sizeBytes)} BYTES · BASE64URL
             </h3>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="btn btn-sm btn-secondary" onClick={() => void copy(text, 'text')}>
-                <span className={copied === 'text' ? 'text-valid' : undefined}>{copied === 'text' ? 'Copied' : 'Copy'}</span>
-              </button>
-              <button type="button" className="btn btn-sm btn-secondary" onClick={() => void copy(link(), 'link')}>
-                <span className={copied === 'link' ? 'text-valid' : undefined}>{copied === 'link' ? 'Copied' : 'Copy verify link'}</span>
-              </button>
+              <CopyButton value={text} label="Copy" className="btn btn-sm btn-secondary" />
+              <CopyButton value={link()} label="Copy verify link" className="btn btn-sm btn-secondary" />
               {pof && (
                 <button type="button" className="btn btn-sm btn-secondary" onClick={() => downloadBytes(pof as BlobPart, 'proof.pof', 'application/octet-stream')}>
                   <BtnLabel>Download .pof</BtnLabel>

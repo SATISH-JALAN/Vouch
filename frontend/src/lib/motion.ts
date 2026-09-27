@@ -120,6 +120,21 @@ export const READ = {
   pause: 0.6,
 } as const
 
+/** The verify event and the form details (§7.1, §6.4). */
+export const VERIFY = {
+  /** the seal stamps: from this scale back to 1, with a one-frame press shadow and one ripple */
+  stampFrom: 1.12,
+  stamp: 0.28,
+  ripple: 0.7,
+  /** invalid: one nudge, never a shake loop */
+  nudge: 4,
+  /** a field refusing input nudges less than a verdict does */
+  fieldNudge: 3,
+  /** a copied label holds before it returns */
+  copyHold: 1.6,
+  scramble: 0.6,
+} as const
+
 /** Rebuild layout-dependent timelines only on a meaningful resize (§8); ignores address-bar jitter. */
 export const RESIZE = { dx: 2, dy: 150 } as const
 

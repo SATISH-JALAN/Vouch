@@ -8,6 +8,7 @@ import { claimParts, formatDate, formatInt, formatZec, formatZecExact } from '@/
 import { Chip, cx, Panel, TrustNote } from '@/components/ui/primitives'
 import { CopyBlock } from '@/components/ui/CopyBlock'
 import { Hash } from '@/components/ui/Hash'
+import { DropMarch, PickBox, PickCheck } from '@/components/motion/Pick'
 import { BtnLabel } from '@/components/motion/BtnLabel'
 import { toZatoshi, trimZec, useRequest } from './store'
 
@@ -95,16 +96,17 @@ export function RequestBuilder() {
               return (
                 <label
                   key={c.kind}
+                  data-on={s.claim === c.kind}
                   className={cx(
-                    'rounded-chip border px-4 py-3 transition-colors duration-200 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-[3px] has-[:focus-visible]:outline-seal',
+                    'pick rounded-chip border px-4 py-3 transition-colors duration-200 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-[3px] has-[:focus-visible]:outline-seal',
                     provable ? 'cursor-pointer hover:border-ink' : 'cursor-not-allowed opacity-60',
-                    s.claim === c.kind ? 'border-ink bg-bone-2' : 'border-border',
+                    s.claim === c.kind ? 'border-ink' : 'border-border',
                   )}
                 >
                   <input type="radio" name="claim" value={c.kind} checked={s.claim === c.kind} disabled={!provable} onChange={() => s.set({ claim: c.kind })} className="sr-only" />
                   <span className="flex items-center justify-between gap-2">
                     <span className="block text-[15px] font-medium">{c.label}</span>
-                    {!provable && <Chip>{c.kind === 'HoldsExactly' ? 'By design' : 'Roadmap'}</Chip>}
+                    {provable ? <PickCheck className="h-3.5 w-3.5 shrink-0 text-ink" /> : <Chip>{c.kind === 'HoldsExactly' ? 'By design' : 'Roadmap'}</Chip>}
                   </span>
                   <span className="t-small block text-ink-3">{c.hint}</span>
                 </label>
@@ -134,7 +136,7 @@ export function RequestBuilder() {
                   type="button"
                   onClick={() => s.setUnit(u)}
                   aria-pressed={s.unit === u}
-                  className={cx('t-data-sm px-4 uppercase tracking-[0.1em] transition-colors duration-200', s.unit === u ? 'bg-ink text-bone' : 'text-ink-2 hover:bg-bone-2')}
+                  className={cx('pick pick-ink t-data-sm px-4 uppercase tracking-[0.1em]', s.unit === u ? 'text-bone' : 'text-ink-2 hover:bg-bone-2')}
                 >
                   {u === 'zat' ? 'zatoshi' : 'ZEC'}
                 </button>
@@ -181,7 +183,7 @@ export function RequestBuilder() {
                 type="button"
                 aria-pressed={s.expiryDays === d}
                 onClick={() => s.set({ expiryDays: d })}
-                className={cx('btn btn-sm border', s.expiryDays === d ? 'border-ink bg-bone-2' : 'border-border hover:border-ink')}
+                className={cx('pick btn btn-sm border', s.expiryDays === d ? 'border-ink' : 'border-border hover:border-ink')}
               >
                 {d === 1 ? '1 day' : `${d} days`}
               </button>
@@ -217,7 +219,7 @@ export function RequestBuilder() {
                 type="button"
                 aria-pressed={s.respondDays === d}
                 onClick={() => s.set({ respondDays: d })}
-                className={cx('btn btn-sm border', s.respondDays === d ? 'border-ink bg-bone-2' : 'border-border hover:border-ink')}
+                className={cx('pick btn btn-sm border', s.respondDays === d ? 'border-ink' : 'border-border hover:border-ink')}
               >
                 {d === 0 ? 'No deadline' : d === 1 ? 'Tomorrow' : `${d} days`}
               </button>
@@ -227,9 +229,7 @@ export function RequestBuilder() {
 
         <label className="flex cursor-pointer gap-3 rounded-chip border border-border p-3 transition-colors duration-200 hover:border-ink has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-seal">
           <input type="checkbox" className="sr-only" checked={s.bindSolana} onChange={(e) => s.set({ bindSolana: e.target.checked })} />
-          <span className={cx('mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[2px] border', s.bindSolana ? 'border-ink bg-ink' : 'border-border')} aria-hidden>
-            {s.bindSolana && <span className="h-1.5 w-1.5 bg-bone" />}
-          </span>
+          <PickBox on={s.bindSolana} />
           <span>
             <span className="block text-[14px] font-medium text-ink">Bind to the holder’s Solana account</span>
             <span className="t-data-sm block text-ink-3">For on-chain verifiers. Only that account can use the proof, so a copied proof is worthless.</span>

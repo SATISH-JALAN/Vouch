@@ -17,8 +17,10 @@ import { Chip, cx, Eyebrow, Panel, TrustNote } from '@/components/ui/primitives'
 import { CopyBlock } from '@/components/ui/CopyBlock'
 import { RevealTable } from '@/components/ui/RevealTable'
 import { Verdict, present } from '@/components/ui/Verdict'
-import { useCopy } from '@/components/ui/useCopy'
 import { SourceNote } from '@/components/verify/SourceNote'
+import { flyToken } from '@/lib/dropToken'
+import { DropMarch, PickBox, PickCheck } from '@/components/motion/Pick'
+import { CopyButton } from '@/components/motion/CopyButton'
 import { BtnLabel } from '@/components/motion/BtnLabel'
 import { readHistory, revoke, revokedSecrets, upsert, writeHistory, type HistoryEntry } from './history'
 
@@ -60,6 +62,7 @@ function Console({ r }: { r: string | null }) {
   const [os, setOs] = useState('macOS / Linux')
   const [solana, setSolana] = useState('')
   const [busy, setBusy] = useState<'proving' | 'checking' | null>(null)
+  const [dragging, setDragging] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [proof, setProof] = useState<Proved | null>(null)
   const [history, setHistory] = useState<HistoryEntry[]>([])
@@ -218,7 +221,7 @@ function Console({ r }: { r: string | null }) {
                 aria-pressed={path === k}
                 type="button"
                 onClick={() => setPath(k)}
-                className={cx('t-data-sm px-4 py-2 uppercase tracking-[0.1em] transition-colors', path === k ? 'bg-ink text-bone' : 'text-ink-2 hover:bg-bone-2')}
+                className={cx('pick pick-ink t-data-sm px-4 py-2 uppercase tracking-[0.1em]', path === k ? 'text-bone' : 'text-ink-2 hover:bg-bone-2')}
               >
                 {label}
               </button>
@@ -229,8 +232,8 @@ function Console({ r }: { r: string | null }) {
         {needsBinding && (
           <label className="block">
             <span className="t-eyebrow mb-2 block text-ink-3">YOUR SOLANA ACCOUNT (BASE58)</span>
-            <input className="field t-data w-full" value={solana} onChange={(e) => setSolana(e.target.value)} placeholder="e.g. 7Xf…9Qk" spellCheck={false} aria-invalid={!!solana && !bindingOk} />
-            <span className={cx('t-data-sm mt-2 block', solana && !bindingOk ? 'text-invalid' : 'text-ink-3')}>
+            <input className="field t-data w-full" value={solana} onChange={(e) => setSolana(e.target.value)} placeholder="e.g. 7Xf…9Qk" spellCheck={false} aria-invalid={!!solana && !bindingOk} aria-describedby="solana-help" />
+            <span id="solana-help" className={cx('t-data-sm mt-2 block', solana && !bindingOk ? 'text-invalid' : 'text-ink-3')}>
               {solana && !bindingOk ? 'That is not a base58 Solana public key.' : 'The proof is bound to this account; nobody else can use it on-chain.'}
             </span>
           </label>
@@ -254,7 +257,7 @@ function Console({ r }: { r: string | null }) {
           <Panel label="Your own wallet" chip={<Chip>Keys stay on your machine</Chip>} bodyClassName="space-y-5 p-5 sm:p-6">
             <div role="group" aria-label="Install" className="flex flex-wrap gap-2">
               {Object.keys(INSTALL).map((k) => (
-                <button key={k} type="button" aria-pressed={os === k} onClick={() => setOs(k)} className={cx('btn btn-sm border', os === k ? 'border-ink bg-bone-2' : 'border-border hover:border-ink')}>
+                <button key={k} type="button" aria-pressed={os === k} onClick={() => setOs(k)} className={cx('pick btn btn-sm border', os === k ? 'border-ink' : 'border-border hover:border-ink')}>
                   {k}
                 </button>
               ))}
@@ -279,10 +282,19 @@ function Console({ r }: { r: string | null }) {
         )}
 
         <label
-          onDragOver={(e: DragEvent) => e.preventDefault()}
+          data-dropzone=""
+          data-dragging={dragging}
+          onDragOver={(e: DragEvent) => {
+            e.preventDefault()
+            setDragging(true)
+          }}
+          onDragLeave={() => setDragging(false)}
           onDrop={(e: DragEvent) => {
             e.preventDefault()
-            void onFile(e.dataTransfer.files[0])
+            setDragging(false)
+            const file = e.dataTransfer.files[0]
+            if (file) flyToken(file.name, { x: e.clientX, y: e.clientY }, e.currentTarget.querySelector('.t-title'))
+            void onFile(file)
           }}
           aria-disabled={busy ? true : undefined}
           className={cx(
@@ -290,6 +302,7 @@ function Console({ r }: { r: string | null }) {
             busy ? 'cursor-wait' : 'cursor-pointer hover:border-ink hover:bg-bone-2',
           )}
         >
+          <DropMarch />
           <span className="t-eyebrow text-ink-3">{path === 'wallet' ? '4 · ' : ''}CHECK IT BEFORE YOU SEND IT</span>
           <span className="t-title">{busy === 'checking' ? 'Checking…' : 'Drop the proof.pof it wrote. You see exactly what they will see.'}</span>
           <input
@@ -336,7 +349,6 @@ function Console({ r }: { r: string | null }) {
 }
 
 function Handover({ b64, audience, result }: { b64: string; audience: string; result: VerificationResult }) {
-  const { copied, copy } = useCopy()
   const download = () => {
     const bytes = fromBase64Url(b64)
     if (bytes) downloadBytes(bytes as BlobPart, 'proof.pof', 'application/octet-stream')
@@ -347,12 +359,8 @@ function Handover({ b64, audience, result }: { b64: string; audience: string; re
       <button type="button" className="btn btn-primary" onClick={download}>
         <BtnLabel>Download proof.pof</BtnLabel>
       </button>
-      <button type="button" className="btn btn-secondary" onClick={() => void copy(link(), 'link')}>
-        <span className={copied === 'link' ? 'text-valid' : undefined}>{copied === 'link' ? 'Copied' : 'Copy verify link'}</span>
-      </button>
-      <button type="button" className="btn btn-secondary" onClick={() => void copy(b64, 'text')}>
-        <span className={copied === 'text' ? 'text-valid' : undefined}>{copied === 'text' ? 'Copied' : 'Copy as text'}</span>
-      </button>
+      <CopyButton value={link()} label="Copy verify link" className="btn btn-secondary" />
+      <CopyButton value={b64} label="Copy as text" className="btn btn-secondary" />
       <button type="button" className="btn btn-secondary" onClick={() => downloadReceipt(result, audience)}>
         <BtnLabel>Download your receipt</BtnLabel>
       </button>
@@ -469,8 +477,8 @@ function History({
                           aria-label={`Revocation secret for ${e.id}`}
                         />
                       )}
-                      <button type="button" className="btn btn-sm border border-invalid text-invalid hover:bg-bone-2" disabled={revoking} onClick={() => void doRevoke(e)}>
-                        {revoking ? 'Revoking…' : 'Revoke'}
+                      <button type="button" className="btn btn-sm border border-invalid text-invalid hover:bg-bone-2" aria-busy={revoking} disabled={revoking} onClick={() => void doRevoke(e)}>
+                        <BtnLabel>{revoking ? 'Revoking…' : 'Revoke'}</BtnLabel>
                       </button>
                     </>
                   )}

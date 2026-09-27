@@ -7,6 +7,7 @@ import { startLenis, stopLenis, getLenis, scrollToTarget } from '@/lib/lenis'
 import { motionOK } from '@/lib/motion'
 import { pageEffects } from '@/lib/effects'
 import { installButtons } from '@/lib/buttons'
+import { installForms } from '@/lib/forms'
 
 declare global {
   interface Window {
@@ -32,6 +33,7 @@ export function MotionProvider({ children }: { children: ReactNode }) {
     window.__st = () => ScrollTrigger.getAll().length
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     let buttons: (() => void) | undefined
+    let forms: (() => void) | undefined
     if (reduced || !motionOK()) {
       // Fully static. Anything that still tweens finishes effectively instantly.
       gsap.globalTimeline.timeScale(100)
@@ -39,6 +41,7 @@ export function MotionProvider({ children }: { children: ReactNode }) {
     } else {
       startLenis()
       buttons = installButtons()
+      forms = installForms()
     }
     // Masks and triggers must measure against the real fonts, not fallback metrics.
     document.fonts?.ready.then(() => ScrollTrigger.refresh())
@@ -53,6 +56,7 @@ export function MotionProvider({ children }: { children: ReactNode }) {
     return () => {
       released.disconnect()
       buttons?.()
+      forms?.()
       stopLenis()
     }
   }, [])

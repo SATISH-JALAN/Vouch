@@ -10,6 +10,7 @@ import { formatDate, formatInt, formatZecExact } from '@/lib/format'
 import { fromBase64Url, fromHex, toBase58, toBase64Url } from '@/lib/pof/bytes'
 import { isUnbound, reseal } from '@/lib/pof/codec'
 import { Chip, cx, TrustNote } from '@/components/ui/primitives'
+import { DropMarch, PickBox, PickCheck } from '@/components/motion/Pick'
 import { BtnLabel } from '@/components/motion/BtnLabel'
 import { ClaimLine } from '@/components/ui/ClaimLine'
 import { Hash } from '@/components/ui/Hash'
@@ -402,9 +403,7 @@ function Toggle({ checked, onChange, label, hint, disabled }: { checked: boolean
       )}
     >
       <input type="checkbox" className="peer sr-only" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
-      <span className={cx('mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[2px] border', checked ? 'border-ink bg-ink' : 'border-border')} aria-hidden>
-        {checked && <span className="h-1.5 w-1.5 bg-bone" />}
-      </span>
+      <PickBox on={checked} />
       <span>
         <span className="block text-[14px] font-medium text-ink">{label}</span>
         <span className="t-data-sm block text-ink-3">{hint}</span>
