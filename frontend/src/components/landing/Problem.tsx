@@ -1,19 +1,25 @@
 'use client'
 
 import Image from 'next/image'
-import { Curtain } from '@/components/motion/Curtain'
+import { useRef } from 'react'
+import { useLineReveal } from '@/components/motion/hooks'
 import { Metric } from '@/components/ui/Metric'
 import { Accent, SectionHead, Triptych, TriptychCell } from '@/components/ui/primitives'
 
-/** The problem, behind the curtain: the all-or-nothing reveal is its own entrance, so nothing else here animates in. */
+/**
+ * The problem, on paper under the dark hero. It has its own paper because it rises over the end of the
+ * hero's stage with a hard edge. One quiet entrance: the heading's lines and the ledger's unveil.
+ */
 export function Problem() {
+  const title = useRef<HTMLHeadingElement>(null)
+  useLineReveal(title)
+
   return (
-    <section id="problem" aria-labelledby="problem-h" className="relative">
-      <Curtain line="A viewing key: every page, to anyone holding it, forever." />
+    <section id="problem" aria-labelledby="problem-h" className="relative bg-bone">
       <div className="wrap section">
         <div className="grid-12 items-start">
           <div className="col-span-12 lg:col-span-7">
-            <SectionHead eyebrow="THE ONLY TOOL YOU HAVE" title={<>A viewing key is <Accent>all or nothing.</Accent></>} />
+            <SectionHead eyebrow="THE ONLY TOOL YOU HAVE" title={<>A viewing key is <Accent>all or nothing.</Accent></>} titleRef={title} lineReveal />
             <div className="section-body space-y-6 text-ink-2">
               <p className="t-prose">
                 Zcash hides everything by design. The only disclosure tool it gives you is a viewing key, and a viewing key is all-or-nothing:
@@ -27,7 +33,7 @@ export function Problem() {
             </div>
           </div>
           <figure className="col-span-12 mx-auto mt-12 w-full max-w-[440px] lg:col-span-5 lg:col-start-8 lg:mt-0 lg:max-w-none">
-            <div data-curtain-scene="">
+            <div data-unveil="">
             <Image
               src="/visuals/ledger.webp"
               width={1122}

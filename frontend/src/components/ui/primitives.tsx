@@ -31,13 +31,14 @@ export function Accent({ children }: { children: string }) {
   return <em className="accent">{children}</em>
 }
 
-export type ChipStatus = 'valid' | 'invalid' | 'expired' | 'neutral'
+export type ChipStatus = 'valid' | 'invalid' | 'expired' | 'neutral' | 'on-dark'
 
 const CHIP: Record<ChipStatus, string> = {
   valid: 'bg-valid-bg text-valid',
   invalid: 'bg-invalid-bg text-invalid',
   expired: 'bg-expired-bg text-expired',
   neutral: 'bg-bone-2 text-ink-2',
+  'on-dark': 'bg-shielded-2 text-on-dark-2',
 }
 
 /** Status only — never a control. */

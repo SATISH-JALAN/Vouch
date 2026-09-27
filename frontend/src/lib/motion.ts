@@ -99,21 +99,21 @@ export const TREE = {
   ringGap: 8,
 } as const
 
-/** The curtain (§5.3): no pin, scrubbed while the section's top rises between these. */
-export const CURTAIN = {
-  start: 'top 85%',
-  end: 'top 15%',
-  scrub: 0.65,
-  /** how narrow a drape bunches before it draws off into the margin */
-  gathered: 0.05,
-  /** the scene behind pushes in from this */
-  push: 1.06,
-} as const
-
 /** The redaction read (§5.4): a pinned sentence read at reading pace. */
 export const READ = {
-  pinDesktop: '+=170%',
-  pinMobile: '+=120%',
+  pinDesktop: '+=245%',
+  pinMobile: '+=190%',
+  /** the hold on "1 of 1 disclosed", the sweep of dark that covers the sentence, and the beat of dark
+   *  alone, as fractions of the read */
+  hold: 0.16,
+  wipe: 0.4,
+  dark: 0.1,
+  /** then what follows fades in where it stands, on the still dark, over this much scroll */
+  fadePin: '+=90%',
+  /** it settles from this scale as it fades in */
+  fadeFrom: 0.985,
+  /** where it stands: centred, but never higher than this from the top (the header) */
+  riseTop: 96,
   scrub: 0.65,
   /** per open word: its bar's travel, and the gap to the next word */
   word: 0.9,

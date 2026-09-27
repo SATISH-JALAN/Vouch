@@ -217,53 +217,33 @@ html.lenis, html.lenis body { height: auto; }
 /* the iris stage fills the viewport while it is pinned, so nothing of the next section shows under it */
 .js-ready [data-iris-stage] { min-height: 100vh; min-height: 100svh; }
 
-/* ── the curtain (§5.3): paper pleats, only when motion runs ─────────────── */
-
-.curtain { display: none; }
-.js-ready .curtain { display: block; }
-.curtain-drape {
-  --pleat: max(30px, 3.4vw);
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 50.5%;
-  /* soft folds at two periods that never line up, so it reads as cloth rather than stripes;
-     compressing it toward the side edge reads as the cloth bunching */
-  background:
-    linear-gradient(to bottom, rgb(26 29 27 / 0.03), transparent 35%, rgb(26 29 27 / 0.05)),
-    repeating-linear-gradient(90deg, rgb(26 29 27 / 0) 0, rgb(26 29 27 / 0.045) calc(var(--pleat) * 0.55), rgb(26 29 27 / 0.1) calc(var(--pleat) * 0.82), rgb(26 29 27 / 0) var(--pleat)),
-    repeating-linear-gradient(90deg, rgb(255 255 255 / 0) 0, rgb(255 255 255 / 0.4) calc(var(--pleat) * 0.5), rgb(255 255 255 / 0) calc(var(--pleat) * 1.03)),
-    var(--color-bone-2);
-}
-.curtain-drape-l { left: 0; transform-origin: 0 50%; box-shadow: inset -14px 0 20px -14px rgb(26 29 27 / 0.28); }
-.curtain-drape-r { right: 0; transform-origin: 100% 50%; box-shadow: inset 14px 0 20px -14px rgb(26 29 27 / 0.28); }
-/* each half of the printed line is clipped to its own side of the seam */
-.curtain-seam { position: absolute; top: clamp(88px, 13vh, 150px); width: 50%; overflow: hidden; }
-.curtain-seam-l { left: 0; }
-.curtain-seam-r { left: 50%; }
-.curtain-line {
-  display: block;
-  width: 200%;
-  padding-inline: var(--gutter);
-  text-align: center;
-  font-family: var(--font-serif);
-  font-style: italic;
-  font-size: clamp(26px, 3.4vw, 56px);
-  line-height: 1.08;
-  letter-spacing: -0.015em;
-  color: var(--color-ink);
-}
-.curtain-seam-r .curtain-line { margin-left: -100%; }
-
 /* ── the redaction read (§5.4): the base state is the finished one ─────────── */
 
 .rr-text {
-  max-width: 34ch;
+  /* while it runs the sentence is the whole screen: display size, short lines, and never taller
+     than the viewport */
+  max-width: 20ch;
   font-family: var(--font-serif);
-  font-size: clamp(26px, 2.9vw, 48px);
-  line-height: 1.2;
-  letter-spacing: -0.012em;
+  font-size: clamp(40px, min(5.2vw, 8.2vh), 84px);
+  line-height: 1.08;
+  letter-spacing: -0.018em;
   color: var(--color-ink);
+}
+[data-redaction-read] { position: relative; }
+/* the dark that closes the section like a curtain, over the sentence: a full viewport centred on the
+   stage, clipped to nothing until it sweeps */
+.rr-wipe {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  top: 50%;
+  width: 100vw;
+  height: 100vh;
+  height: 100lvh;
+  translate: -50% -50%;
+  background: var(--color-shielded);
+  visibility: hidden;
+  pointer-events: none;
 }
 .rr-w { position: relative; display: inline-block; }
 .rr-bar {
@@ -282,8 +262,6 @@ html.lenis, html.lenis body { height: auto; }
 .rr-u { position: absolute; left: 0; right: 0; bottom: 0.02em; height: 2px; background: var(--color-seal); transform-origin: 0 50%; }
 .rr-readout { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 32px; color: var(--color-ink-3); text-transform: uppercase; letter-spacing: 0.12em; }
 .rr-readout b { font-weight: 500; color: var(--color-ink); }
-/* while it runs, it is a stage of its own: the sentence alone on the screen */
-.js-ready [data-redaction-read] { min-height: 100vh; min-height: 100svh; display: flex; flex-direction: column; justify-content: center; }
 
 /* ── redaction ──────────────────────────────────────────────────────────── */
 

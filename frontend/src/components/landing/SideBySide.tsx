@@ -52,8 +52,14 @@ export function SideBySide({ hasImage = false }: { hasImage?: boolean }) {
     () => {
       const el = root.current?.querySelector<HTMLElement>('[data-through-doc]')
       if (!el || !motionOK()) return
+      // it seats as the table finishes fading in on the dark (RedactionRead's 'rr-rise' pin), then rides with it
       const st = ScrollTrigger.create({ trigger: el, start: 'center center' })
-      return registerSlot(1, { el, shape: 'doc', range: () => [st.start - innerHeight * 0.1, st.start + innerHeight * 0.2] })
+      const range = (): [number, number] => {
+        const fade = ScrollTrigger.getById('rr-rise')
+        if (!fade) return [st.start - innerHeight * 0.1, st.start + innerHeight * 0.2]
+        return [fade.start + (fade.end - fade.start) * 0.55, fade.end + innerHeight * 0.25]
+      }
+      return registerSlot(1, { el, shape: 'doc', ground: 'dark', range })
     },
     { scope: root },
   )
@@ -61,7 +67,7 @@ export function SideBySide({ hasImage = false }: { hasImage?: boolean }) {
   return (
     <section id="lender" aria-labelledby="lender-h">
       <Rule />
-      <div className="wrap section">
+      <div className="wrap pt-[var(--s-top)]">
         {hasImage ? (
           /* S2, after Colosseum's plates: a dark panel with a mat line outside it, the words on the left,
              and the painting filling the right edge to edge, dissolving away behind them. Only once it exists. */
@@ -112,52 +118,58 @@ export function SideBySide({ hasImage = false }: { hasImage?: boolean }) {
           className="section-body"
           text="Vouch proves exactly one fact — [[you hold at least 500 ZEC]] — to one named lender, until one named date. Your {{balance}}, your {{notes}}, your {{addresses}}, your {{history}} and your {{counterparties}} stay exactly where they are."
         />
+      </div>
 
-        <div ref={root} className="section-body grid overflow-hidden rounded-panel border border-border lg:grid-cols-2">
-          {/* left — the avalanche */}
-          <div className="border-b border-border lg:border-b-0 lg:border-r">
-            <div className="flex h-[42px] items-center justify-between border-b border-border px-5">
-              <span className="t-data-sm uppercase tracking-[0.12em] text-ink-2">Viewing key</span>
-              <Chip>{VIEWING_KEY.length} disclosures</Chip>
+      {/* the dark the read closed on stays as the ground: the evidence, on the dark */}
+      {/* it appears on the dark the read closed on, fading in where it stands (RedactionRead) */}
+      <div data-band="shielded" data-rr-rise="" className="relative z-10 bg-shielded text-on-dark">
+        <div className="wrap pb-[var(--s-end)] pt-[clamp(32px,5vh,56px)]">
+          <div ref={root} data-rr-rise-to="" className="grid overflow-hidden rounded-panel border border-rule-dark lg:grid-cols-2">
+            {/* left — the avalanche */}
+            <div className="border-b border-rule-dark lg:border-b-0 lg:border-r">
+              <div className="flex h-[42px] items-center justify-between border-b border-rule-dark px-5">
+                <span className="t-data-sm uppercase tracking-[0.12em] text-on-dark-2">Viewing key</span>
+                <Chip status="on-dark">{VIEWING_KEY.length} disclosures</Chip>
+              </div>
+              <p className="t-title px-5 pt-6 sm:px-8">You share a viewing key.</p>
+              <p className="t-data-sm px-5 pb-4 pt-1 text-on-dark-2 sm:px-8">Everything opens, permanently.</p>
+              <dl className="pb-4">
+                {VIEWING_KEY.map((r) => (
+                  <div key={r.label} className="grid grid-cols-[minmax(0,11rem)_1fr] items-baseline gap-4 border-t border-rule-dark px-5 py-[9px] sm:px-8">
+                    <dt className="t-data-sm uppercase tracking-[0.1em] text-on-dark-2">{r.label}</dt>
+                    <dd className="t-data min-w-0 truncate text-on-dark">{r.value}</dd>
+                  </div>
+                ))}
+              </dl>
             </div>
-            <p className="t-title px-5 pt-6 sm:px-8">You share a viewing key.</p>
-            <p className="t-data-sm px-5 pb-4 pt-1 text-ink-3 sm:px-8">Everything opens, permanently.</p>
-            <dl className="pb-4">
-              {VIEWING_KEY.map((r) => (
-                <div key={r.label} className="grid grid-cols-[minmax(0,11rem)_1fr] items-baseline gap-4 border-t border-border px-5 py-[9px] sm:px-8">
-                  <dt className="t-data-sm uppercase tracking-[0.1em] text-ink-3">{r.label}</dt>
-                  <dd className="t-data min-w-0 truncate text-ink">{r.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
 
-          {/* right — one line, then permanent redaction */}
-          <div>
-            <div className="relative flex h-[42px] items-center justify-between border-b border-border px-5">
-              <span className="t-data-sm uppercase tracking-[0.12em] text-ink-2">Vouch proof</span>
-              <Chip>1 disclosure</Chip>
-              {/* the through-line object becomes the document here, just outside the table */}
-              <span data-through-doc="" aria-hidden className="pointer-events-none absolute left-full top-1/2 ml-[3px] h-3.5 w-3.5 -translate-y-1/2 lg:ml-4 lg:h-7 lg:w-7" />
+            {/* right — one line, then permanent redaction */}
+            <div>
+              <div className="relative flex h-[42px] items-center justify-between border-b border-rule-dark px-5">
+                <span className="t-data-sm uppercase tracking-[0.12em] text-on-dark-2">Vouch proof</span>
+                <Chip status="on-dark">1 disclosure</Chip>
+                {/* the through-line object becomes the document here, just outside the table */}
+                <span data-through-doc="" aria-hidden className="pointer-events-none absolute left-full top-1/2 ml-[3px] h-3.5 w-3.5 -translate-y-1/2 lg:ml-4 lg:h-7 lg:w-7" />
+              </div>
+              <p className="t-title px-5 pt-6 sm:px-8">You send a Vouch proof.</p>
+              <p className="t-data-sm px-5 pb-4 pt-1 text-on-dark-2 sm:px-8">One line opens. The rest never will.</p>
+              <div className="border-t border-rule-dark px-5 py-[9px] sm:px-8">
+                <p className="t-data text-seal">Holds ≥ 500 ZEC at block {formatInt(ANCHOR.height)}</p>
+              </div>
+              <dl className="pb-4">
+                {WITHHELD.map((r) => (
+                  <div key={r.label} className="grid grid-cols-[minmax(0,11rem)_1fr] items-center gap-4 border-t border-rule-dark px-5 py-[9px] sm:px-8">
+                    <dt className="t-data-sm uppercase tracking-[0.1em] text-on-dark-2">{r.label}</dt>
+                    <dd className="t-data">
+                      <Redact tone="on-dark" width={r.width} label={`${r.label}: withheld`} />
+                    </dd>
+                  </div>
+                ))}
+              </dl>
             </div>
-            <p className="t-title px-5 pt-6 sm:px-8">You send a Vouch proof.</p>
-            <p className="t-data-sm px-5 pb-4 pt-1 text-ink-3 sm:px-8">One line opens. The rest never will.</p>
-            <div className="border-t border-border px-5 py-[9px] sm:px-8">
-              <p className="t-data text-seal">Holds ≥ 500 ZEC at block {formatInt(ANCHOR.height)}</p>
-            </div>
-            <dl className="pb-4">
-              {WITHHELD.map((r) => (
-                <div key={r.label} className="grid grid-cols-[minmax(0,11rem)_1fr] items-center gap-4 border-t border-border px-5 py-[9px] sm:px-8">
-                  <dt className="t-data-sm uppercase tracking-[0.1em] text-ink-3">{r.label}</dt>
-                  <dd className="t-data">
-                    <Redact width={r.width} label={`${r.label}: withheld`} />
-                  </dd>
-                </div>
-              ))}
-            </dl>
           </div>
+          <p className="t-data-sm mt-4 text-on-dark-2">The viewing-key column is an illustrative holder, not a real wallet. The proof column is exactly what a threshold proof carries.</p>
         </div>
-        <p className="t-data-sm mt-4 text-ink-3">The viewing-key column is an illustrative holder, not a real wallet. The proof column is exactly what a threshold proof carries.</p>
       </div>
     </section>
   )
