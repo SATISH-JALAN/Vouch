@@ -10,6 +10,7 @@ import { formatDate, formatInt, formatZecExact } from '@/lib/format'
 import { fromBase64Url, fromHex, toBase58, toBase64Url } from '@/lib/pof/bytes'
 import { isUnbound, reseal } from '@/lib/pof/codec'
 import { Chip, cx, TrustNote } from '@/components/ui/primitives'
+import { BtnLabel } from '@/components/motion/BtnLabel'
 import { ClaimLine } from '@/components/ui/ClaimLine'
 import { Hash } from '@/components/ui/Hash'
 import { Mark } from '@/components/brand/Mark'
@@ -201,15 +202,15 @@ export function GateDemo() {
           <Chip status={mode === 'live' ? 'valid' : 'neutral'}>{svc ? (mode === 'live' ? `LIVE · ${svc.solana?.cluster}` : 'SIMULATED CHAIN') : 'CHECKING'}</Chip>
         </div>
         <div className="space-y-2">
-          <button type="button" className="btn btn-primary w-full" data-cursor="RUN" onClick={() => void runNext()} disabled={!svc || !next || halted || busy}>
-            {busy ? 'Running…' : halted ? 'Halted · reset to retry' : next ? `Run step ${ORDER.indexOf(next) + 1}` : 'Complete'}
+          <button type="button" className="btn btn-primary w-full" aria-busy={busy} onClick={() => void runNext()} disabled={!svc || !next || halted || busy}>
+            <BtnLabel>{busy ? 'Running…' : halted ? 'Halted · reset to retry' : next ? `Run step ${ORDER.indexOf(next) + 1}` : 'Complete'}</BtnLabel>
           </button>
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" className="btn btn-sm btn-secondary" data-cursor="RUN" onClick={() => void runAll()} disabled={!svc || busy}>
-              Run all
+            <button type="button" className="btn btn-sm btn-secondary" onClick={() => void runAll()} disabled={!svc || busy}>
+              <BtnLabel>Run all</BtnLabel>
             </button>
             <button type="button" className="btn btn-sm btn-secondary" onClick={reset} disabled={busy}>
-              Reset
+              <BtnLabel>Reset</BtnLabel>
             </button>
           </div>
         </div>
@@ -328,10 +329,10 @@ export function GateDemo() {
               <p className="t-data-sm mt-5 text-ink-3">The ZEC never left Zcash. The pool never learned the balance, the notes, or any address.</p>
               <div className="mt-6 flex flex-wrap gap-2">
                 <button type="button" className="btn btn-sm btn-secondary" onClick={() => void replay()} disabled={busy}>
-                  Submit the same attestation again
+                  <BtnLabel>Submit the same attestation again</BtnLabel>
                 </button>
                 <button type="button" className="btn btn-sm btn-secondary" onClick={() => void stranger()} disabled={busy}>
-                  Open a line from another wallet
+                  <BtnLabel>Open a line from another wallet</BtnLabel>
                 </button>
               </div>
               {s.extra && (

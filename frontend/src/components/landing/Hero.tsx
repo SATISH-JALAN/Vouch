@@ -9,11 +9,13 @@ import { scrollToTarget } from '@/lib/lenis'
 import { useMagnetic } from '@/components/motion/hooks'
 import { HeroMedia } from './HeroMedia'
 import { Redact } from '@/components/ui/Redact'
+import { BtnLabel } from '@/components/motion/BtnLabel'
 
 /**
- * The kinetic moment, and the only one on the site. The headline arrives fully redacted;
- * line by line the bars collapse from the right; "nothing else." holds an extra beat,
- * then clears in --seal. Do not reuse this anywhere else.
+ * The headline's entrance, played once after the preloader hands off. It arrives fully redacted;
+ * line by line the bars collapse from the right; "nothing else." holds an extra beat, then clears
+ * in --seal. Keep it exactly as it is. The pinned, scrubbed redaction read is a different moment and
+ * lives in SideBySide; nothing else on the landing route replays this one.
  */
 export function Hero() {
   const root = useRef<HTMLElement>(null)
@@ -22,7 +24,6 @@ export function Hero() {
   const introDone = useIntro((s) => s.introDone)
 
   useMagnetic(primary)
-  useMagnetic(secondary)
 
   useGSAP(
     () => {
@@ -76,11 +77,11 @@ export function Hero() {
           </p>
 
           <div className="mt-11 flex flex-wrap gap-3">
-            <Link ref={primary} data-enter="" href="/verify" className="btn btn-on-dark hover:scale-[1.02]" data-cursor="VERIFY">
-              Verify a proof
+            <Link ref={primary} data-enter="" href="/verify" className="btn btn-on-dark">
+              <BtnLabel>Verify a proof</BtnLabel>
             </Link>
-            <button ref={secondary} data-enter="" type="button" className="btn btn-ghost-dark" onClick={() => scrollToTarget('#lender')} data-cursor="OPEN">
-              See what a lender learns
+            <button ref={secondary} data-enter="" type="button" className="btn btn-ghost-dark" onClick={() => scrollToTarget('#lender')}>
+              <BtnLabel>See what a lender learns</BtnLabel>
             </button>
           </div>
 

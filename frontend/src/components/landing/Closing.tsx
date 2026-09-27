@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRef } from 'react'
 import { useLineReveal } from '@/components/motion/hooks'
 import { Accent } from '@/components/ui/primitives'
+import { BtnLabel } from '@/components/motion/BtnLabel'
 
 /** The last screen before the footer: one lit card above the door, a crowd watching it. */
 export function Closing() {
@@ -28,11 +29,11 @@ export function Closing() {
           Prove one thing. <Accent>Keep the rest.</Accent>
         </h2>
         <div className="flex flex-wrap justify-center gap-3">
-          <Link href="/verify" className="btn btn-on-dark" data-cursor="VERIFY">
-            Verify a proof
+          <Link href="/verify" className="btn btn-on-dark">
+            <BtnLabel>Verify a proof</BtnLabel>
           </Link>
-          <Link href="/request" className="btn btn-ghost-dark bg-shielded/40" data-cursor="OPEN">
-            Request a proof
+          <Link href="/request" className="btn btn-ghost-dark bg-shielded/40">
+            <BtnLabel>Request a proof</BtnLabel>
           </Link>
         </div>
       </div>

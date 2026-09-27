@@ -8,11 +8,11 @@ import { formatInt } from '@/lib/format'
 import { BRAND } from '@/lib/site'
 
 // The claims counter is 0 because no production proof has been made yet. Keep it honest.
-const ITEMS: { label: string; value?: string; valid?: boolean }[] = [
+const ITEMS: { label: string; value?: string }[] = [
   { label: BRAND.toUpperCase() },
   { label: 'SHIELDED POOL', value: SHIELDED_POOL_USD },
   { label: 'CLAIMS PROVEN', value: '0' },
-  { label: 'VIEWING KEYS SURRENDERED', value: '0', valid: true },
+  { label: 'VIEWING KEYS SURRENDERED', value: '0' },
   { label: 'IRONWOOD' },
   { label: 'BLOCK', value: formatInt(ANCHOR.height) },
 ]
@@ -25,7 +25,7 @@ function Run() {
           {ITEMS.map((it) => (
             <span key={it.label} className="flex items-center whitespace-nowrap">
               <span>{it.label}</span>
-              {it.value && <span className={`ml-[0.6em] ${it.valid ? 'text-valid' : 'text-on-dark'}`}>{it.value}</span>}
+              {it.value && <span className="ml-[0.6em] text-on-dark">{it.value}</span>}
               <span className="mx-[1.4em] text-on-dark-2" aria-hidden>
                 ·
               </span>

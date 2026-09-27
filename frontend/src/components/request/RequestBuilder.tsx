@@ -8,6 +8,7 @@ import { claimParts, formatDate, formatInt, formatZec, formatZecExact } from '@/
 import { Chip, cx, Panel, TrustNote } from '@/components/ui/primitives'
 import { CopyBlock } from '@/components/ui/CopyBlock'
 import { Hash } from '@/components/ui/Hash'
+import { BtnLabel } from '@/components/motion/BtnLabel'
 import { toZatoshi, trimZec, useRequest } from './store'
 
 const CLAIMS: { kind: ClaimKind; label: string; hint: string }[] = [
@@ -249,11 +250,11 @@ export function RequestBuilder() {
               </p>
               <CopyBlock label="LINK" value={link} />
               <div className="mt-3 flex flex-wrap gap-2">
-                <a className="btn btn-sm btn-secondary" href={link} target="_blank" rel="noreferrer" data-cursor="OPEN">
-                  Preview as the holder ↗
+                <a className="btn btn-sm btn-secondary" href={link} target="_blank" rel="noreferrer">
+                  <BtnLabel>Preview as the holder ↗</BtnLabel>
                 </a>
                 <button type="button" className="btn btn-sm btn-secondary" onClick={() => setId(newRequestId())}>
-                  New request id
+                  <BtnLabel>New request id</BtnLabel>
                 </button>
               </div>
               <CopyBlock label="OR, FOR THE CLI" value={cliCommand(encoded, request.bind)} />

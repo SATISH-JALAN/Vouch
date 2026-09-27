@@ -8,7 +8,7 @@ export function CopyBlock({ label, value }: { label: string; value: string }) {
     <div className="mt-6">
       <div className="mb-2 flex items-center justify-between">
         <span className="t-eyebrow text-ink-3">{label}</span>
-        <button type="button" className="t-data-sm uppercase tracking-[0.12em] text-ink-2 hover:text-ink" data-cursor="COPY" onClick={() => void copy(value)}>
+        <button type="button" className="t-data-sm uppercase tracking-[0.12em] text-ink-2 hover:text-ink" onClick={() => void copy(value)}>
           <span className={copied ? 'text-valid' : undefined}>{copied ? 'Copied' : 'Copy'}</span>
         </button>
       </div>

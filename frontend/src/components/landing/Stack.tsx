@@ -160,11 +160,11 @@ function ComponentIndex({ lit }: { lit: string[] }) {
       <nav aria-label="Project links" className="mt-8 flex flex-wrap gap-x-8 gap-y-3 lg:justify-end">
         {LINK_ROW.filter((l) => l.href).map((l) =>
           l.external ? (
-            <a key={l.label} href={l.href!} target="_blank" rel="noreferrer" className="t-data-sm link-draw tracking-[0.14em] text-ink-2 hover:text-ink" data-cursor="OPEN">
+            <a key={l.label} href={l.href!} target="_blank" rel="noreferrer" className="t-data-sm link-draw tracking-[0.14em] text-ink-2 hover:text-ink">
               {l.label} ↗
             </a>
           ) : (
-            <Link key={l.label} href={l.href!} className="t-data-sm link-draw tracking-[0.14em] text-ink-2 hover:text-ink" data-cursor="OPEN">
+            <Link key={l.label} href={l.href!} className="t-data-sm link-draw tracking-[0.14em] text-ink-2 hover:text-ink">
               {l.label} ↗
             </Link>
           ),

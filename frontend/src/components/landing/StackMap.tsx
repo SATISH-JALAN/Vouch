@@ -2,6 +2,8 @@
 
 import Image from 'next/image'
 import { cx } from '@/components/ui/primitives'
+import { CURSOR } from '@/lib/motion'
+import type { CSSProperties } from 'react'
 
 export interface Place {
   id: string
@@ -29,7 +31,13 @@ export function StackMap({ active, onActive }: { active: string | null; onActive
   const current = PLACES.find((p) => p.id === active)
   return (
     <figure>
-      <div className="relative overflow-hidden rounded-panel border border-border" onMouseLeave={() => onActive(null)}>
+      {/* the aperture lens (MOTION.md §6.1): the one painting on the page people linger over */}
+      <div
+        className="relative overflow-hidden rounded-panel border border-border"
+        data-cursor="lens"
+        style={{ '--lens-r': `${CURSOR.ring / 2}px` } as CSSProperties}
+        onMouseLeave={() => onActive(null)}
+      >
         <Image
           src="/visuals/stack-map.webp"
           alt="Oil painting: a world's-fair ground at dusk, divided by a river. Pavilions on one bank are joined to a glass pavilion on the other only by telegraph wires; there is no bridge."
@@ -38,11 +46,12 @@ export function StackMap({ active, onActive }: { active: string | null; onActive
           sizes="(min-width: 1760px) 1760px, 100vw"
           className="h-auto w-full"
         />
+        <div className="lens-veil" aria-hidden />
         {PLACES.map((p, i) => (
           <button
             key={p.id}
             type="button"
-            data-cursor="OPEN"
+            data-cursor-label="OPEN"
             onMouseEnter={() => onActive(p.id)}
             onFocus={() => onActive(p.id)}
             onBlur={() => onActive(null)}

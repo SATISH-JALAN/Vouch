@@ -19,6 +19,7 @@ import { RevealTable } from '@/components/ui/RevealTable'
 import { Verdict, present } from '@/components/ui/Verdict'
 import { useCopy } from '@/components/ui/useCopy'
 import { SourceNote } from '@/components/verify/SourceNote'
+import { BtnLabel } from '@/components/motion/BtnLabel'
 import { readHistory, revoke, revokedSecrets, upsert, writeHistory, type HistoryEntry } from './history'
 
 const SAMPLE: ProofRequest = { v: 1, claim: 'HoldsAtLeast', zatoshi: '50000000000', audience: DEMO_AUDIENCE.id, expiryDays: 7 }
@@ -156,10 +157,10 @@ function Console({ r }: { r: string | null }) {
           </p>
           <div className="flex flex-wrap gap-3">
             <button type="button" className="btn btn-primary" onClick={() => window.location.assign(`/prove?r=${encodeRequest({ ...SAMPLE, id: newRequestId() })}`)}>
-              Open a sample request
+              <BtnLabel>Open a sample request</BtnLabel>
             </button>
             <a className="btn btn-secondary" href="/request">
-              Build a request
+              <BtnLabel>Build a request</BtnLabel>
             </a>
           </div>
         </Panel>
@@ -242,8 +243,8 @@ function Console({ r }: { r: string | null }) {
               demo prover answer this exact request with a real Halo2 proof; then this page verifies it the way the other side will.
             </p>
             <div className="flex flex-wrap items-center gap-3">
-              <button type="button" className="btn btn-primary" onClick={() => void proveAsDemo()} disabled={!!busy || !status?.demoProver || !bindingOk}>
-                {busy === 'proving' ? 'Proving…' : 'Prove as the demo holder'}
+              <button type="button" className="btn btn-primary" aria-busy={busy === 'proving'} onClick={() => void proveAsDemo()} disabled={!!busy || !status?.demoProver || !bindingOk}>
+                <BtnLabel>{busy === 'proving' ? 'Proving…' : 'Prove as the demo holder'}</BtnLabel>
               </button>
               {!status?.demoProver && status && <span className="t-data-sm text-ink-3">{status.attestor.message ?? 'The demo prover runs inside pof-attest; this deployment has none.'} Use the CLI below.</span>}
             </div>
@@ -344,7 +345,7 @@ function Handover({ b64, audience, result }: { b64: string; audience: string; re
   return (
     <Panel label="Send it however you already talk to them" bodyClassName="flex flex-wrap gap-2 p-5 sm:p-6">
       <button type="button" className="btn btn-primary" onClick={download}>
-        Download proof.pof
+        <BtnLabel>Download proof.pof</BtnLabel>
       </button>
       <button type="button" className="btn btn-secondary" onClick={() => void copy(link(), 'link')}>
         <span className={copied === 'link' ? 'text-valid' : undefined}>{copied === 'link' ? 'Copied' : 'Copy verify link'}</span>
@@ -353,7 +354,7 @@ function Handover({ b64, audience, result }: { b64: string; audience: string; re
         <span className={copied === 'text' ? 'text-valid' : undefined}>{copied === 'text' ? 'Copied' : 'Copy as text'}</span>
       </button>
       <button type="button" className="btn btn-secondary" onClick={() => downloadReceipt(result, audience)}>
-        Download your receipt
+        <BtnLabel>Download your receipt</BtnLabel>
       </button>
     </Panel>
   )
@@ -452,7 +453,7 @@ function History({
                 <div className="flex flex-wrap items-center gap-2">
                   <Chip status={state === 'live' ? 'valid' : state === 'expired' ? 'expired' : 'invalid'}>{state}</Chip>
                   <a className="btn btn-sm btn-secondary" href={`/verify#p=${e.proof}&a=${encodeURIComponent(e.audience)}`}>
-                    Open
+                    <BtnLabel>Open</BtnLabel>
                   </a>
                   {state === 'live' && (
                     <>

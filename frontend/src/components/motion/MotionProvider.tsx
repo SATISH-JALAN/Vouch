@@ -6,6 +6,7 @@ import { gsap, ScrollTrigger } from '@/lib/gsap'
 import { startLenis, stopLenis, getLenis, scrollToTarget } from '@/lib/lenis'
 import { motionOK } from '@/lib/motion'
 import { pageEffects } from '@/lib/effects'
+import { installButtons } from '@/lib/buttons'
 
 declare global {
   interface Window {
@@ -27,16 +28,21 @@ export function MotionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     window.__vouchReady = true
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    let buttons: (() => void) | undefined
     if (reduced || !motionOK()) {
       // Fully static. Anything that still tweens finishes effectively instantly.
       gsap.globalTimeline.timeScale(100)
       stopLenis()
     } else {
       startLenis()
+      buttons = installButtons()
     }
     // Masks and triggers must measure against the real fonts, not fallback metrics.
     document.fonts?.ready.then(() => ScrollTrigger.refresh())
-    return () => stopLenis()
+    return () => {
+      buttons?.()
+      stopLenis()
+    }
   }, [])
 
   useEffect(() => {

@@ -13,7 +13,7 @@ export function Hash({ value, head = 5, tail = 4, full = false, className, label
       type="button"
       onClick={() => void copy(value)}
       title={value}
-      data-cursor="COPY"
+      data-cursor-label="COPY"
       aria-label={`Copy ${label ?? 'value'} ${value}`}
       className={cx(
         'inline max-w-full cursor-copy break-all text-left font-mono transition-colors duration-200',

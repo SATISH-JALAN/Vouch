@@ -16,6 +16,7 @@ import { DataTable } from '@/components/ui/DataTable'
 import { Chip, cx, Panel } from '@/components/ui/primitives'
 import { useCopy } from '@/components/ui/useCopy'
 import { SourceNote } from './SourceNote'
+import { BtnLabel } from '@/components/motion/BtnLabel'
 
 const MAX_BYTES = 1024 * 1024
 const AUDIENCE_KEY = 'vouch:verify:audience'
@@ -171,7 +172,7 @@ export function VerifierConsole() {
             }}
             onDragLeave={() => setDragging(false)}
             onDrop={onDrop}
-            data-cursor="OPEN"
+            data-cursor-label="OPEN"
             aria-disabled={busy || undefined}
             className={cx(
               'flex min-h-[168px] flex-col items-start justify-between gap-6 rounded-panel border border-dashed p-5 transition-colors duration-200 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-[3px] has-[:focus-visible]:outline-seal',
@@ -218,11 +219,11 @@ export function VerifierConsole() {
                 />
               </label>
               <div className="flex gap-2">
-                <button type="button" className="btn btn-primary" data-cursor="VERIFY" disabled={!text.trim() || busy || ready === 'failed'} onClick={() => void run(text, active && active !== 'custom' ? active : 'custom', audience)}>
-                  {busy ? 'Checking…' : 'Verify'}
+                <button type="button" className="btn btn-primary" aria-busy={busy} disabled={!text.trim() || busy || ready === 'failed'} onClick={() => void run(text, active && active !== 'custom' ? active : 'custom', audience)}>
+                  <BtnLabel>{busy ? 'Checking…' : 'Verify'}</BtnLabel>
                 </button>
                 <button type="button" className="btn btn-secondary" onClick={clear} disabled={busy || (!text && !checked && !error)}>
-                  Clear
+                  <BtnLabel>Clear</BtnLabel>
                 </button>
               </div>
             </div>
@@ -239,7 +240,6 @@ export function VerifierConsole() {
               <button
                 key={p.id}
                 type="button"
-                data-cursor="RUN"
                 disabled={busy}
                 onClick={() => void runPreset(p)}
                 aria-pressed={active === p.id}
@@ -309,8 +309,8 @@ function ResultDetail({ result, text, audience }: Checked) {
           <h3 id="checks-h" className="t-eyebrow text-ink-3">
             THE SIX CHECKS · CHEAPEST FIRST · STOPS AT THE FIRST FAILURE
           </h3>
-          <button type="button" className="btn btn-sm btn-secondary" data-cursor="OPEN" onClick={() => downloadReceipt(result, audience)}>
-            Download receipt
+          <button type="button" className="btn btn-sm btn-secondary" onClick={() => downloadReceipt(result, audience)}>
+            <BtnLabel>Download receipt</BtnLabel>
           </button>
         </div>
         <DataTable<Check>
@@ -352,15 +352,15 @@ function ResultDetail({ result, text, audience }: Checked) {
               THE FILE · {formatInt(result.sizeBytes)} BYTES · BASE64URL
             </h3>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="btn btn-sm btn-secondary" data-cursor="COPY" onClick={() => void copy(text, 'text')}>
+              <button type="button" className="btn btn-sm btn-secondary" onClick={() => void copy(text, 'text')}>
                 <span className={copied === 'text' ? 'text-valid' : undefined}>{copied === 'text' ? 'Copied' : 'Copy'}</span>
               </button>
-              <button type="button" className="btn btn-sm btn-secondary" data-cursor="COPY" onClick={() => void copy(link(), 'link')}>
+              <button type="button" className="btn btn-sm btn-secondary" onClick={() => void copy(link(), 'link')}>
                 <span className={copied === 'link' ? 'text-valid' : undefined}>{copied === 'link' ? 'Copied' : 'Copy verify link'}</span>
               </button>
               {pof && (
-                <button type="button" className="btn btn-sm btn-secondary" data-cursor="OPEN" onClick={() => downloadBytes(pof as BlobPart, 'proof.pof', 'application/octet-stream')}>
-                  Download .pof
+                <button type="button" className="btn btn-sm btn-secondary" onClick={() => downloadBytes(pof as BlobPart, 'proof.pof', 'application/octet-stream')}>
+                  <BtnLabel>Download .pof</BtnLabel>
                 </button>
               )}
             </div>

@@ -56,11 +56,11 @@ export function Footer() {
           <nav aria-label="Footer" className="flex flex-wrap gap-x-7 gap-y-3 uppercase tracking-[0.16em]">
             {LINKS_ROW.map((l) =>
               l.external ? (
-                <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="link-draw hover:text-on-dark" data-cursor="OPEN">
+                <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="link-draw hover:text-on-dark">
                   {l.label} ↗
                 </a>
               ) : (
-                <Link key={l.href} href={l.href} className="link-draw hover:text-on-dark" data-cursor="OPEN">
+                <Link key={l.href} href={l.href} className="link-draw hover:text-on-dark">
                   {l.label}
                 </Link>
               ),
@@ -70,10 +70,10 @@ export function Footer() {
             type="button"
             onClick={() => scrollToTarget(0)}
             className="group inline-flex items-center gap-3 uppercase tracking-[0.16em] transition-colors hover:text-on-dark"
-            data-cursor="TOP"
           >
             Back to the top
-            <span className="grid h-8 w-8 place-items-center rounded-full border border-rule-dark transition-colors group-hover:border-on-dark">↑</span>
+            {/* the round arrow is the one part with no words: the cursor labels it, and rings it */}
+            <span data-cursor-label="TOP" className="grid h-8 w-8 place-items-center rounded-full border border-rule-dark transition-colors group-hover:border-on-dark">↑</span>
           </button>
         </div>
         <p className="border-t border-rule-dark pt-5 uppercase tracking-[0.14em]">
