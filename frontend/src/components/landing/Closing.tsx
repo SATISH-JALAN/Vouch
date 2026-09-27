@@ -40,7 +40,7 @@ export function Closing() {
       place()
       ScrollTrigger.addEventListener('refreshInit', place)
       const st = ScrollTrigger.create({ trigger: slot, start: 'center center' })
-      const unslot = registerSlot(3, { el: slot, shape: 'seal', range: () => [st.start, st.start] })
+      const unslot = registerSlot(3, { el: slot, shape: 'seal', bare: true, range: () => [st.start, st.start] })
       return () => {
         ScrollTrigger.removeEventListener('refreshInit', place)
         unslot()

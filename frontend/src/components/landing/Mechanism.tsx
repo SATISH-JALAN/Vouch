@@ -5,7 +5,7 @@ import { useRef } from 'react'
 import { gsap, ScrollTrigger, useGSAP } from '@/lib/gsap'
 import { EASE, IRIS, MQ, TREE } from '@/lib/motion'
 import { onMeaningfulResize } from '@/lib/resize'
-import { registerSlot, SHAPES } from '@/lib/through'
+import { registerSlot, SEAL_RING, SHAPES } from '@/lib/through'
 import { Mark } from '@/components/brand/Mark'
 import { Accent, Rule, SectionHead, TrustNote } from '@/components/ui/primitives'
 
@@ -105,7 +105,7 @@ export function Mechanism() {
                 ))}
               </div>
               {/* stage progress: the pin will end */}
-              <p className="t-data-sm absolute right-0 top-0 flex items-center gap-3 text-ink-3">
+              <p className="t-data-sm absolute bottom-1 right-0 flex items-center gap-3 text-ink-3">
                 <span>
                   <span data-tree-count="" className="text-ink">
                     04
@@ -174,7 +174,16 @@ function grow(el: HTMLElement) {
     return n
   }
   const ink = 'var(--color-ink)'
-  const root = make('path', { d: SHAPES.seal, fill: 'var(--color-seal)', transform: `translate(${cx - R} ${cy - R}) scale(${TREE.rootSize / 100})` })
+  // the seal, and the ring the stamp pressed into it
+  const k = TREE.rootSize / 100
+  const root = make('g', { transform: `translate(${cx - R} ${cy - R}) scale(${k})` })
+  const wax = document.createElementNS(NS, 'path')
+  wax.setAttribute('d', SHAPES.seal)
+  wax.setAttribute('fill', 'var(--color-seal)')
+  const press = document.createElementNS(NS, 'circle')
+  for (const [a, v] of Object.entries({ cx: 50, cy: 50, r: SEAL_RING.r, fill: 'none', stroke: 'var(--color-seal-bg)', 'stroke-opacity': 0.7, 'stroke-width': SEAL_RING.px / k }))
+    press.setAttribute(a, String(v))
+  root.append(wax, press)
   const ring = make('circle', { cx, cy, r: R + TREE.ringGap, fill: 'none', stroke: ink, 'stroke-width': 1 })
   const y0 = cy + R + TREE.ringGap
   const edges = at.map((p) => {
@@ -182,10 +191,11 @@ function grow(el: HTMLElement) {
     const mid = (y0 + y1) / 2
     return make('path', { d: `M${cx} ${y0} C${cx} ${mid} ${p.x} ${mid} ${p.x} ${y1}`, fill: 'none', stroke: ink, 'stroke-width': 1 })
   })
-  // dash of L with a gap of L+24, offset L+12: no stub shows before a line starts drawing (§5.2)
+  // dash of L+2 with a gap of L+24, offset L+12: no stub shows before a line starts drawing (§5.2),
+  // and a closed ring has no nick where it meets itself (the measured length runs a little short)
   const hide = (p: SVGGeometryElement) => {
     const L = p.getTotalLength()
-    gsap.set(p, { strokeDasharray: `${L} ${L + 24}`, strokeDashoffset: L + 12 })
+    gsap.set(p, { strokeDasharray: `${L + 2} ${L + 24}`, strokeDashoffset: L + 12 })
   }
 
   return {
@@ -212,8 +222,10 @@ function grow(el: HTMLElement) {
 function build(el: HTMLElement) {
   return gsap.context(() => {
     const g = grow(el)
-    const LEAF = 1.8 // when the first painting opens
-    const EACH = 0.9
+    // the first painting opens while the lower edges are still drawing, so the band between the tree
+    // and the step titles is never empty for more than a moment
+    const LEAF = 0.95
+    const EACH = 0.8
     ;[g.ring, ...g.edges].forEach(g.hide)
     gsap.set(g.root, { opacity: 0 })
     gsap.set(g.inks, { opacity: 0, scale: 0.6, transformOrigin: '50% 50%' })
@@ -222,9 +234,7 @@ function build(el: HTMLElement) {
     g.count.textContent = '00'
 
     const tl = gsap.timeline({ defaults: { ease: EASE.scrub } })
-    // the object is already seated on the root: the static root takes its place underneath
-    tl.to(g.root, { opacity: 1, duration: 0.1 }, 0)
-      .to(g.ring, { strokeDashoffset: 0, duration: 0.6, ease: 'power2.out' }, 0.1)
+    tl.to(g.ring, { strokeDashoffset: 0, duration: 0.6, ease: 'power2.out' }, 0.1)
       .to(g.edges, { strokeDashoffset: 0, duration: 0.8, stagger: 0.12, ease: 'power2.inOut' }, 0.5)
     g.inks.forEach((n, i) => tl.to(n, { opacity: 1, scale: 1, duration: 0.3, ease: EASE.pop }, 0.5 + 0.8 + i * 0.12))
     g.leaves.forEach((leaf, i) => {
@@ -248,7 +258,15 @@ function build(el: HTMLElement) {
       if (n !== shown) g.count.textContent = String((shown = n)).padStart(2, '0')
     })
 
-    const unslot = registerSlot(2, { el: g.slot, shape: 'seal', range: () => [st.start, st.end] })
+    // approached down the margin, then across at the root's own height: it never crosses the heading
+    // the drawn root shows under the object from the frame it seats, and stays once it moves on
+    const unslot = registerSlot(2, {
+      el: g.slot,
+      shape: 'seal',
+      approach: 'vertical',
+      range: () => [st.start, st.end],
+      hold: (on) => gsap.set(g.root, { opacity: on ? 1 : 0 }),
+    })
     return () => {
       unslot()
       g.clear()

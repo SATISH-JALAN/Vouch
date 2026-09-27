@@ -76,11 +76,13 @@ export const IRIS = {
 
 /** The through-line object (§5.5). Distances in viewport heights unless noted. */
 export const THROUGH = {
+  /** leaving or arriving at a waypoint (a bare slot), it scales over this much of the transit */
+  bareSpan: 0.3,
   /** hold the source colour this far into a transit, then switch over `colorSpan` (a linear blend goes through mud) */
   colorHold: 0.58,
   colorSpan: 0.24,
-  /** detail layers (document bars, seal ring) fade out this fast away from their own shape */
-  detailFalloff: 3.2,
+  /** seconds: the switch itself is a short step in time, not a blend spread across the scroll */
+  colorStep: 0.06,
   /** a transit longer than this does not drag the object across the sections in between: it leaves, and arrives */
   longTransit: 1.2,
   fade: 0.35,
