@@ -2,7 +2,8 @@
 
 import Image from 'next/image'
 import { useRef } from 'react'
-import { gsap, useGSAP } from '@/lib/gsap'
+import { gsap, ScrollTrigger, useGSAP } from '@/lib/gsap'
+import { registerSlot } from '@/lib/through'
 import { D, E, STAGGER, isDesktop, motionOK } from '@/lib/motion'
 import { ANCHOR } from '@/lib/data/chain'
 import { formatInt } from '@/lib/format'
@@ -61,6 +62,17 @@ export function SideBySide({ hasImage = false }: { hasImage?: boolean }) {
         .timeline({ scrollTrigger: { trigger: el, start: 'top 78%', once: true } })
         .fromTo(rows, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: D.sm, ease: E.out, stagger: STAGGER.row })
         .to(seal, { scaleX: 0, transformOrigin: 'right center', duration: D.md, ease: E.big }, '+=0.4')
+    },
+    { scope: root },
+  )
+
+  // the second slot of the through-line: the seal becomes the document the proof is
+  useGSAP(
+    () => {
+      const el = root.current?.querySelector<HTMLElement>('[data-through-doc]')
+      if (!el || !motionOK()) return
+      const st = ScrollTrigger.create({ trigger: el, start: 'center center' })
+      return registerSlot(1, { el, shape: 'doc', range: () => [st.start - innerHeight * 0.1, st.start + innerHeight * 0.2] })
     },
     { scope: root },
   )
@@ -135,9 +147,11 @@ export function SideBySide({ hasImage = false }: { hasImage?: boolean }) {
 
           {/* right — one line, then permanent redaction */}
           <div>
-            <div className="flex h-[42px] items-center justify-between border-b border-border px-5">
+            <div className="relative flex h-[42px] items-center justify-between border-b border-border px-5">
               <span className="t-data-sm uppercase tracking-[0.12em] text-ink-2">Vouch proof</span>
               <Chip>1 disclosure</Chip>
+              {/* the through-line object becomes the document here, just outside the table */}
+              <span data-through-doc="" aria-hidden className="pointer-events-none absolute left-full top-1/2 ml-[3px] h-3.5 w-3.5 -translate-y-1/2 lg:ml-4 lg:h-7 lg:w-7" />
             </div>
             <p className="t-title px-5 pt-6 sm:px-8">You send a Vouch proof.</p>
             <p className="t-data-sm px-5 pb-4 pt-1 text-ink-3 sm:px-8">One line opens. The rest never will.</p>

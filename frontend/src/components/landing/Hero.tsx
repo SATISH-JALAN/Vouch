@@ -56,6 +56,8 @@ export function Hero() {
   return (
     <section ref={root} data-band="shielded" data-iris-stage="" className="relative flex min-h-[90vh] flex-col overflow-hidden bg-shielded text-on-dark" aria-labelledby="hero-h">
       <HeroMedia />
+      {/* where the iris ends: the through-line object takes over from the painting here */}
+      <span data-iris-slot="" aria-hidden className="pointer-events-none absolute" />
 
       <div className="wrap grid-12 relative flex-1 content-start items-baseline pb-[clamp(56px,7vw,112px)] pt-[clamp(128px,14vw,200px)] md:content-end">
         <div className="col-span-12 lg:col-span-8">

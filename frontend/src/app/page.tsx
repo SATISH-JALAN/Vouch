@@ -8,6 +8,7 @@ import { Mechanism } from '@/components/landing/Mechanism'
 import { Unlocks } from '@/components/landing/Unlocks'
 import { Stack } from '@/components/landing/Stack'
 import { Closing } from '@/components/landing/Closing'
+import { Traveler } from '@/components/motion/Traveler'
 
 // Slots for paintings that may not be delivered yet: render only what is on disk.
 const hasLenderDesk = existsSync(path.join(process.cwd(), 'public/visuals/lender-desk.webp'))
@@ -24,6 +25,8 @@ export default function Landing() {
       <Unlocks />
       <Stack />
       <Closing />
+      {/* one seal, carried from the hero's painting to the closing one */}
+      <Traveler />
     </>
   )
 }

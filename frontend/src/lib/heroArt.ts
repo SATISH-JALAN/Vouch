@@ -40,5 +40,17 @@ export const HERO_PORTRAIT: HeroArt = {
   position: [0.5, 0.3],
 }
 
+/**
+ * The closing painting: the through-line object lands on its seal. Seal measured at (768, 451) of
+ * 1536×1024; the wax is 1.7% of the painting's width. `position` matches its object-position.
+ */
+export const CLOSING_ART = {
+  w: 1536,
+  h: 1024,
+  seal: [0.4999, 0.4408] as [number, number],
+  wax: 0.017,
+  position: [0.5, 0] as [number, number],
+}
+
 /** Must match the <source media> in HeroMedia. */
 export const HERO_WIDE_MQ = '(min-width: 768px)'

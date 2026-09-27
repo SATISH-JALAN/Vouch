@@ -72,7 +72,8 @@ export function Nav() {
         stick?.kill()
       }
     },
-    { dependencies: [pathname] },
+    // every route has its own bands: tear the old triggers down, don't pile new ones on top
+    { dependencies: [pathname], revertOnUpdate: true },
   )
 
   // the current-route dot slides from the link it was under (measured against the list, not the

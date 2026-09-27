@@ -2,8 +2,10 @@
 
 import type { RefObject } from 'react'
 import { gsap, ScrollTrigger, useGSAP } from '@/lib/gsap'
-import { EASE, IRIS, MQ, RESIZE } from '@/lib/motion'
+import { EASE, IRIS, MQ } from '@/lib/motion'
+import { onMeaningfulResize } from '@/lib/resize'
 import { HERO_PORTRAIT, HERO_WIDE, HERO_WIDE_MQ } from '@/lib/heroArt'
+import { registerSlot } from '@/lib/through'
 
 /**
  * The iris handoff (MOTION.md §5.1). The whole scene narrows to one sealed fact.
@@ -18,6 +20,8 @@ import { HERO_PORTRAIT, HERO_WIDE, HERO_WIDE_MQ } from '@/lib/heroArt'
  *   [data-iris-video]   the loop; held (faded out, paused) while the still does the work
  *   [data-iris-scrim]   the flat scrim, lifted with the copy
  *   [data-iris-lift]    copy that lifts away first, in DOM order
+ *   [data-iris-slot]    placed over the end circle: the through-line object's first slot. As the
+ *                       circle closes, the painted circle hands over to the vector seal there
  * The section's data-band follows the ground, so the header and cursor read it as paper once it is.
  * Built only once `ready` (the preloader has handed off). Reduced motion: nothing runs, the hero
  * stays exactly as authored and nothing pins.
@@ -31,27 +35,16 @@ export function useIris(ref: RefObject<HTMLElement | null>, ready: boolean) {
       mm.add({ desktop: `${MQ.desktop} and ${MQ.motion}`, mobile: `${MQ.mobile} and ${MQ.motion}` }, (mctx) => {
         const desktop = !!mctx.conditions?.desktop
         let stage = build(section, desktop)
-        let w = innerWidth
-        let h = innerHeight
-        let timer: ReturnType<typeof setTimeout> | undefined
-        const onResize = () => {
-          clearTimeout(timer)
-          timer = setTimeout(() => {
-            if (Math.abs(innerWidth - w) < RESIZE.dx && Math.abs(innerHeight - h) < RESIZE.dy) return
-            w = innerWidth
-            h = innerHeight
-            stage.revert()
-            stage = build(section, desktop)
-            ScrollTrigger.sort()
-            ScrollTrigger.refresh()
-          }, 200)
-        }
-        window.addEventListener('resize', onResize)
+        const off = onMeaningfulResize(() => {
+          stage.revert()
+          stage = build(section, desktop)
+          ScrollTrigger.sort()
+          ScrollTrigger.refresh()
+        })
         ScrollTrigger.sort()
         ScrollTrigger.refresh()
         return () => {
-          clearTimeout(timer)
-          window.removeEventListener('resize', onResize)
+          off()
           stage.revert()
         }
       })
@@ -92,6 +85,8 @@ function build(section: HTMLElement, desktop: boolean) {
     const z = desktop ? IRIS.pushMax : IRIS.pushMobile
     const rEnd = clamp(desktop ? IRIS.endMin : IRIS.endMinMobile, IRIS.endMax, art.card * s * z * IRIS.endFrame)
     const circle = (r: number) => `circle(${r.toFixed(1)}px at ${sx.toFixed(1)}px ${sy.toFixed(1)}px)`
+    const slot = section.querySelector<HTMLElement>('[data-iris-slot]')
+    if (slot) gsap.set(slot, { left: sx - rEnd, top: sy - rEnd, width: rEnd * 2, height: rEnd * 2 })
 
     const tl = gsap.timeline({ defaults: { ease: EASE.scrub } })
     tl.to(lifts, { y: -48, autoAlpha: 0, duration: 0.9, stagger: 0.12, ease: EASE.leave }, 0)
@@ -103,6 +98,7 @@ function build(section: HTMLElement, desktop: boolean) {
       // ground lands, so the next section is already rising while the circle carries on
       .fromTo(section, { backgroundColor: token('--color-shielded') }, { backgroundColor: token('--color-bone'), duration: 0.5, ease: 'power2.inOut' }, 3.6)
     const GROUND_AT = 3.85 // the switch's midpoint: from here the section reads as paper
+    const HANDOVER = 3.7 // from here to the end, the painted circle becomes the vector seal
 
     let paper = false
     const setGround = (p: boolean) => {
@@ -130,7 +126,7 @@ function build(section: HTMLElement, desktop: boolean) {
       }
     }
 
-    ScrollTrigger.create({
+    const st = ScrollTrigger.create({
       trigger: section,
       start: 'top top',
       end: desktop ? IRIS.pinDesktop : IRIS.pinMobile,
@@ -146,7 +142,18 @@ function build(section: HTMLElement, desktop: boolean) {
     // the pin's first frames must not wait on a decode: it is the LCP image, so this is normally a no-op
     void plate.querySelector('img')?.decode().catch(() => {})
 
+    const unslot = slot
+      ? registerSlot(0, {
+          el: slot,
+          shape: 'seal',
+          range: () => [st.start + (st.end - st.start) * (HANDOVER / tl.duration()), st.end],
+          crossfade: (v) => gsap.set(frame, { opacity: 1 - v }),
+        })
+      : null
+
     return () => {
+      unslot?.()
+      gsap.set(frame, { clearProps: 'opacity' })
       setGround(false)
       const v = video()
       if (v) {

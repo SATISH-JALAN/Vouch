@@ -2,8 +2,10 @@
 
 import Image from 'next/image'
 import { useRef } from 'react'
-import { gsap, useGSAP } from '@/lib/gsap'
-import { MQ } from '@/lib/motion'
+import { gsap, ScrollTrigger, useGSAP } from '@/lib/gsap'
+import { EASE, IRIS, MQ, TREE } from '@/lib/motion'
+import { onMeaningfulResize } from '@/lib/resize'
+import { registerSlot, SHAPES } from '@/lib/through'
 import { Mark } from '@/components/brand/Mark'
 import { Accent, Rule, SectionHead, TrustNote } from '@/components/ui/primitives'
 
@@ -34,29 +36,37 @@ const STAGES = [
   },
 ]
 
-/** The Anoma move: one pinned diagram, not four cards. Below 1024px it is a numbered list. */
+const NS = 'http://www.w3.org/2000/svg'
+
+/**
+ * The anchor tree (MOTION.md §5.2), in one pinned diagram rather than four cards. The through-line
+ * seal arrives as the root; a ring draws around it, edges grow down into the four rosette nodes,
+ * each node inks in as its edge reaches it, and the four paintings open in turn inside ellipses that
+ * match their oval vignettes, counted 01 / 04. The step text is readable throughout.
+ * Below 1024px it is a numbered list. Reduced motion: the whole tree drawn, nothing pinned.
+ */
 export function Mechanism() {
   const pin = useRef<HTMLDivElement>(null)
 
   useGSAP(
     () => {
       const mm = gsap.matchMedia()
-      mm.add(`${MQ.desktop} and ${MQ.motion}`, () => {
+      mm.add({ motion: `${MQ.desktop} and ${MQ.motion}`, still: `${MQ.desktop} and (prefers-reduced-motion: reduce)` }, (ctx) => {
         const el = pin.current!
-        const stages = gsap.utils.toArray<HTMLElement>('[data-stage]', el)
-        const nodes = gsap.utils.toArray<HTMLElement>('[data-node]', el)
-        const rail = el.querySelector('[data-rail]')
-        gsap.set(stages.slice(1), { opacity: 0.36 })
-        gsap.set(nodes.slice(1), { opacity: 0 })
-
-        const tl = gsap.timeline({
-          scrollTrigger: { trigger: el, start: 'top top', end: '+=320%', pin: true, scrub: 1, snap: { snapTo: 1 / 3, duration: { min: 0.2, max: 0.6 }, ease: 'power2.inOut' } },
+        if (ctx.conditions?.still) {
+          const g = grow(el)
+          g.final()
+          return () => g.clear()
+        }
+        let stage = build(el)
+        const off = onMeaningfulResize(() => {
+          stage.revert()
+          stage = build(el)
+          ScrollTrigger.refresh()
         })
-        tl.fromTo(rail, { drawSVG: '0%' }, { drawSVG: '100%', duration: 3, ease: 'none' }, 0)
-        for (let i = 1; i < stages.length; i++) {
-          tl.to(stages[i - 1]!, { opacity: 0.36, duration: 0.3, ease: 'none' }, i - 0.5)
-            .to(stages[i]!, { opacity: 1, duration: 0.3, ease: 'none' }, i - 0.5)
-            .to(nodes[i]!, { opacity: 1, duration: 0.3, ease: 'none' }, i - 0.5)
+        return () => {
+          off()
+          stage.revert()
         }
       })
       return () => mm.revert()
@@ -71,30 +81,22 @@ export function Mechanism() {
         <div className="wrap pt-[var(--s-top)] lg:py-10">
           <SectionHead eyebrow="FOUR STEPS" title={<span id="mechanism-h">A proof is a transaction that is <Accent>never sent.</Accent></span>} className="[&_h2]:lg:max-w-none" />
 
-          <div className="mt-[var(--s-content)] lg:mt-10">
-            {/* the rail: desktop only. The mark sits on each column's left edge, pale until its step arrives. */}
-            <div className="relative mb-8 hidden h-[28px] lg:block" aria-hidden>
-              <svg className="absolute left-0 top-1/2 h-[2px] w-full -translate-y-1/2 overflow-visible" viewBox="0 0 1000 2" preserveAspectRatio="none">
-                <line x1="0" y1="1" x2="1000" y2="1" stroke="var(--color-rule)" strokeWidth="1" />
-              </svg>
-              <svg
-                className="absolute left-0 top-1/2 h-[2px] -translate-y-1/2 overflow-visible"
-                style={{ width: 'calc(75% + 18px)' }}
-                viewBox="0 0 1000 2"
-                preserveAspectRatio="none"
-              >
-                <line data-rail="" x1="0" y1="1" x2="1000" y2="1" stroke="var(--color-ink)" strokeWidth="1" />
-              </svg>
-              <div className="absolute inset-y-0 left-0" style={{ width: 'calc(75% + 18px)' }}>
+          <div className="mt-[var(--s-content)] lg:mt-8">
+            {/* the tree: desktop only. The root above, the four rosette nodes on each column's left edge. */}
+            <div data-tree="" className="relative mb-8 hidden h-[112px] lg:block" aria-hidden>
+              <svg data-tree-lines="" className="absolute inset-0 h-full w-full overflow-visible" />
+              <span data-tree-root="" className="pointer-events-none absolute" style={{ width: TREE.rootSize, height: TREE.rootSize }} />
+              <div className="absolute bottom-0 left-0 h-[28px]" style={{ width: 'calc(75% + 18px)' }}>
                 {STAGES.map((_, i) => (
                   <span
                     key={i}
+                    data-tree-node=""
                     className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 bg-bone px-1.5"
                     style={{ left: `${(i / 3) * 100}%` }}
                   >
                     <span className="relative block">
                       <Mark size={28} tone="decorative" />
-                      {/* the inked mark on top, faded up as the step becomes current */}
+                      {/* the inked mark on top, drawn in as its edge arrives */}
                       <span data-node="" className="absolute inset-0">
                         <Mark size={28} tone="bone" />
                       </span>
@@ -102,13 +104,29 @@ export function Mechanism() {
                   </span>
                 ))}
               </div>
+              {/* stage progress: the pin will end */}
+              <p className="t-data-sm absolute right-0 top-0 flex items-center gap-3 text-ink-3">
+                <span>
+                  <span data-tree-count="" className="text-ink">
+                    04
+                  </span>{' '}
+                  / 04
+                </span>
+                <span className="flex gap-1">
+                  {STAGES.map((_, i) => (
+                    <span key={i} className="block h-px w-5 bg-rule">
+                      <span data-tree-dash="" className="block h-full origin-left bg-ink" />
+                    </span>
+                  ))}
+                </span>
+              </p>
             </div>
 
             <ol className="grid gap-y-10 lg:grid-cols-4 lg:gap-x-6">
               {STAGES.map((s, i) => (
-                <li key={s.title} data-stage="" className="grid grid-cols-1 gap-x-5 border-t border-border pt-6 md:grid-cols-[220px_1fr] md:gap-x-8 lg:block lg:border-t-0 lg:pt-0">
-                  <div data-fade="" className="relative mb-5 w-full min-w-0 max-w-[260px] md:row-span-3 md:mb-0 md:max-w-none lg:mb-5 lg:w-fit lg:max-w-full">
-                    <Image src={s.img} alt={s.alt} width={480} height={600} unoptimized className="h-auto w-full lg:h-[clamp(260px,calc(100vh-540px),460px)] lg:w-auto lg:max-w-full lg:object-contain lg:object-left" />
+                <li key={s.title} className="grid grid-cols-1 gap-x-5 border-t border-border pt-6 md:grid-cols-[220px_1fr] md:gap-x-8 lg:block lg:border-t-0 lg:pt-0">
+                  <div data-leaf="" className="relative mb-5 w-full min-w-0 max-w-[260px] md:row-span-3 md:mb-0 md:max-w-none lg:mb-5 lg:w-fit lg:max-w-full">
+                    <Image src={s.img} alt={s.alt} width={480} height={600} unoptimized className="h-auto w-full lg:h-[clamp(240px,calc(100vh-624px),460px)] lg:w-auto lg:max-w-full lg:object-contain lg:object-left" />
                   </div>
                   <p className="t-data-sm text-ink-3">{String(i + 1).padStart(2, '0')}</p>
                   <h3 className="t-display-m mt-2 text-ink">{s.title}</h3>
@@ -124,4 +142,116 @@ export function Mechanism() {
       </div>
     </section>
   )
+}
+
+/** Lays the tree out against the live DOM: the root centred over the nodes, one curved edge to each. */
+function grow(el: HTMLElement) {
+  const tree = el.querySelector<HTMLElement>('[data-tree]')!
+  const svg = tree.querySelector<SVGSVGElement>('[data-tree-lines]')!
+  const slot = tree.querySelector<HTMLElement>('[data-tree-root]')!
+  const nodes = gsap.utils.toArray<HTMLElement>('[data-tree-node]', tree)
+  const inks = gsap.utils.toArray<HTMLElement>('[data-node]', tree)
+  const dashes = gsap.utils.toArray<HTMLElement>('[data-tree-dash]', tree)
+  const count = tree.querySelector<HTMLElement>('[data-tree-count]')!
+  const leaves = gsap.utils.toArray<HTMLElement>('[data-leaf]', el)
+
+  const box = tree.getBoundingClientRect()
+  const at = nodes.map((n) => {
+    const r = n.getBoundingClientRect()
+    return { x: r.left + r.width / 2 - box.left, y: r.top + r.height / 2 - box.top }
+  })
+  const R = TREE.rootSize / 2
+  const cx = (at[0]!.x + at[at.length - 1]!.x) / 2
+  const cy = R
+  gsap.set(slot, { left: cx - R, top: 0 })
+
+  svg.setAttribute('viewBox', `0 0 ${box.width} ${box.height}`)
+  svg.replaceChildren()
+  const make = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>) => {
+    const n = document.createElementNS(NS, tag)
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v))
+    svg.appendChild(n)
+    return n
+  }
+  const ink = 'var(--color-ink)'
+  const root = make('path', { d: SHAPES.seal, fill: 'var(--color-seal)', transform: `translate(${cx - R} ${cy - R}) scale(${TREE.rootSize / 100})` })
+  const ring = make('circle', { cx, cy, r: R + TREE.ringGap, fill: 'none', stroke: ink, 'stroke-width': 1 })
+  const y0 = cy + R + TREE.ringGap
+  const edges = at.map((p) => {
+    const y1 = p.y - 14
+    const mid = (y0 + y1) / 2
+    return make('path', { d: `M${cx} ${y0} C${cx} ${mid} ${p.x} ${mid} ${p.x} ${y1}`, fill: 'none', stroke: ink, 'stroke-width': 1 })
+  })
+  // dash of L with a gap of L+24, offset L+12: no stub shows before a line starts drawing (§5.2)
+  const hide = (p: SVGGeometryElement) => {
+    const L = p.getTotalLength()
+    gsap.set(p, { strokeDasharray: `${L} ${L + 24}`, strokeDashoffset: L + 12 })
+  }
+
+  return {
+    root,
+    ring,
+    edges,
+    inks,
+    dashes,
+    count,
+    leaves,
+    slot,
+    hide,
+    /** everything drawn: reduced motion */
+    final() {
+      gsap.set(dashes, { scaleX: 1 })
+      count.textContent = '04'
+    },
+    clear() {
+      svg.replaceChildren()
+    },
+  }
+}
+
+function build(el: HTMLElement) {
+  return gsap.context(() => {
+    const g = grow(el)
+    const LEAF = 1.8 // when the first painting opens
+    const EACH = 0.9
+    ;[g.ring, ...g.edges].forEach(g.hide)
+    gsap.set(g.root, { opacity: 0 })
+    gsap.set(g.inks, { opacity: 0, scale: 0.6, transformOrigin: '50% 50%' })
+    gsap.set(g.dashes, { scaleX: 0 })
+    gsap.set(g.leaves, { clipPath: 'ellipse(0% 0% at 50% 50%)' })
+    g.count.textContent = '00'
+
+    const tl = gsap.timeline({ defaults: { ease: EASE.scrub } })
+    // the object is already seated on the root: the static root takes its place underneath
+    tl.to(g.root, { opacity: 1, duration: 0.1 }, 0)
+      .to(g.ring, { strokeDashoffset: 0, duration: 0.6, ease: 'power2.out' }, 0.1)
+      .to(g.edges, { strokeDashoffset: 0, duration: 0.8, stagger: 0.12, ease: 'power2.inOut' }, 0.5)
+    g.inks.forEach((n, i) => tl.to(n, { opacity: 1, scale: 1, duration: 0.3, ease: EASE.pop }, 0.5 + 0.8 + i * 0.12))
+    g.leaves.forEach((leaf, i) => {
+      const t = LEAF + i * EACH
+      tl.to(leaf, { clipPath: 'ellipse(75% 75% at 50% 50%)', duration: 0.7, ease: 'power3.out' }, t).to(g.dashes[i]!, { scaleX: 1, duration: 0.5 }, t)
+    })
+    tl.to({}, { duration: 0.4 })
+
+    const st = ScrollTrigger.create({
+      trigger: el,
+      start: 'top top',
+      end: TREE.pin,
+      pin: true,
+      scrub: IRIS.scrub,
+      animation: tl,
+      onToggle: (self) => gsap.set(g.leaves, { willChange: self.isActive ? 'clip-path' : 'auto' }),
+    })
+    let shown = -1
+    tl.eventCallback('onUpdate', () => {
+      const n = Math.max(0, Math.min(4, Math.floor((tl.time() - LEAF) / EACH) + 1))
+      if (n !== shown) g.count.textContent = String((shown = n)).padStart(2, '0')
+    })
+
+    const unslot = registerSlot(2, { el: g.slot, shape: 'seal', range: () => [st.start, st.end] })
+    return () => {
+      unslot()
+      g.clear()
+    }
+  }, el)
 }

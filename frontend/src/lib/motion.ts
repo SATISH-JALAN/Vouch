@@ -74,6 +74,29 @@ export const IRIS = {
   videoFade: 0.3,
 } as const
 
+/** The through-line object (§5.5). Distances in viewport heights unless noted. */
+export const THROUGH = {
+  /** hold the source colour this far into a transit, then switch over `colorSpan` (a linear blend goes through mud) */
+  colorHold: 0.58,
+  colorSpan: 0.24,
+  /** detail layers (document bars, seal ring) fade out this fast away from their own shape */
+  detailFalloff: 3.2,
+  /** a transit longer than this does not drag the object across the sections in between: it leaves, and arrives */
+  longTransit: 1.2,
+  fade: 0.35,
+  /** after the landing the object disappears into the painting within this */
+  landFade: 0.14,
+  /** phones: in transit the object parks in the right margin at this size (px) */
+  marginSize: 12,
+} as const
+
+/** The anchor tree (§5.2), inside Mechanism's pin. */
+export const TREE = {
+  pin: '+=300%',
+  rootSize: 40,
+  ringGap: 8,
+} as const
+
 /** Rebuild layout-dependent timelines only on a meaningful resize (§8); ignores address-bar jitter. */
 export const RESIZE = { dx: 2, dy: 150 } as const
 
