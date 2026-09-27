@@ -2,9 +2,10 @@
 
 import Image from 'next/image'
 import { useRef } from 'react'
-import { gsap, ScrollTrigger, useGSAP } from '@/lib/gsap'
+import { ScrollTrigger, useGSAP } from '@/lib/gsap'
+import { RedactionRead } from '@/components/motion/RedactionRead'
 import { registerSlot } from '@/lib/through'
-import { D, E, STAGGER, isDesktop, motionOK } from '@/lib/motion'
+import { motionOK } from '@/lib/motion'
 import { ANCHOR } from '@/lib/data/chain'
 import { formatInt } from '@/lib/format'
 import { fixtureUnifiedAddress } from '@/lib/pof/bytes'
@@ -45,26 +46,6 @@ export function SideBySide({ hasImage = false }: { hasImage?: boolean }) {
   const root = useRef<HTMLDivElement>(null)
   const title = useRef<HTMLHeadingElement>(null)
   useLineReveal(title)
-
-  useGSAP(
-    () => {
-      const el = root.current!
-      const rows = el.querySelectorAll<HTMLElement>('[data-enter]')
-      const seal = el.querySelector<HTMLElement>('[data-reveal]')
-      if (!motionOK()) return
-      if (!isDesktop()) {
-        gsap.set(seal, { scaleX: 0 })
-        gsap.fromTo(rows, { opacity: 0 }, { opacity: 1, duration: D.sm, stagger: STAGGER.row, scrollTrigger: { trigger: el, start: 'top 78%', once: true } })
-        return
-      }
-      // the asymmetry does the arguing: eleven rows pile in fast, then one line, alone
-      gsap
-        .timeline({ scrollTrigger: { trigger: el, start: 'top 78%', once: true } })
-        .fromTo(rows, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: D.sm, ease: E.out, stagger: STAGGER.row })
-        .to(seal, { scaleX: 0, transformOrigin: 'right center', duration: D.md, ease: E.big }, '+=0.4')
-    },
-    { scope: root },
-  )
 
   // the second slot of the through-line: the seal becomes the document the proof is
   useGSAP(
@@ -126,6 +107,12 @@ export function SideBySide({ hasImage = false }: { hasImage?: boolean }) {
           </div>
         )}
 
+        {/* the idea of this section, read as a sentence: the table below is its evidence, and simply sits there */}
+        <RedactionRead
+          className="section-body"
+          text="Vouch proves exactly one fact — [[you hold at least 500 ZEC]] — to one named lender, until one named date. Your {{balance}}, your {{notes}}, your {{addresses}}, your {{history}} and your {{counterparties}} stay exactly where they are."
+        />
+
         <div ref={root} className="section-body grid overflow-hidden rounded-panel border border-border lg:grid-cols-2">
           {/* left — the avalanche */}
           <div className="border-b border-border lg:border-b-0 lg:border-r">
@@ -137,7 +124,7 @@ export function SideBySide({ hasImage = false }: { hasImage?: boolean }) {
             <p className="t-data-sm px-5 pb-4 pt-1 text-ink-3 sm:px-8">Everything opens, permanently.</p>
             <dl className="pb-4">
               {VIEWING_KEY.map((r) => (
-                <div key={r.label} data-enter="" className="grid grid-cols-[minmax(0,11rem)_1fr] items-baseline gap-4 border-t border-border px-5 py-[9px] sm:px-8">
+                <div key={r.label} className="grid grid-cols-[minmax(0,11rem)_1fr] items-baseline gap-4 border-t border-border px-5 py-[9px] sm:px-8">
                   <dt className="t-data-sm uppercase tracking-[0.1em] text-ink-3">{r.label}</dt>
                   <dd className="t-data min-w-0 truncate text-ink">{r.value}</dd>
                 </div>
@@ -156,9 +143,7 @@ export function SideBySide({ hasImage = false }: { hasImage?: boolean }) {
             <p className="t-title px-5 pt-6 sm:px-8">You send a Vouch proof.</p>
             <p className="t-data-sm px-5 pb-4 pt-1 text-ink-3 sm:px-8">One line opens. The rest never will.</p>
             <div className="border-t border-border px-5 py-[9px] sm:px-8">
-              <p className="t-data text-seal">
-                <Redact reveal>Holds ≥ 500 ZEC at block {formatInt(ANCHOR.height)}</Redact>
-              </p>
+              <p className="t-data text-seal">Holds ≥ 500 ZEC at block {formatInt(ANCHOR.height)}</p>
             </div>
             <dl className="pb-4">
               {WITHHELD.map((r) => (

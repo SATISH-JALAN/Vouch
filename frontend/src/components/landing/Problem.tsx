@@ -1,24 +1,19 @@
 'use client'
 
 import Image from 'next/image'
-import { useRef } from 'react'
-import { useEnter, useLineReveal } from '@/components/motion/hooks'
+import { Curtain } from '@/components/motion/Curtain'
 import { Metric } from '@/components/ui/Metric'
 import { Accent, SectionHead, Triptych, TriptychCell } from '@/components/ui/primitives'
-import { D } from '@/lib/motion'
 
+/** The problem, behind the curtain: the all-or-nothing reveal is its own entrance, so nothing else here animates in. */
 export function Problem() {
-  const title = useRef<HTMLHeadingElement>(null)
-  const metrics = useRef<HTMLDivElement>(null)
-  useLineReveal(title)
-  useEnter(metrics, { start: 'top 80%', y: 12, duration: D.lg })
-
   return (
-    <section id="problem" aria-labelledby="problem-h">
+    <section id="problem" aria-labelledby="problem-h" className="relative">
+      <Curtain line="A viewing key: every page, to anyone holding it, forever." />
       <div className="wrap section">
         <div className="grid-12 items-start">
           <div className="col-span-12 lg:col-span-7">
-            <SectionHead eyebrow="THE ONLY TOOL YOU HAVE" title={<>A viewing key is <Accent>all or nothing.</Accent></>} titleRef={title} lineReveal />
+            <SectionHead eyebrow="THE ONLY TOOL YOU HAVE" title={<>A viewing key is <Accent>all or nothing.</Accent></>} />
             <div className="section-body space-y-6 text-ink-2">
               <p className="t-prose">
                 Zcash hides everything by design. The only disclosure tool it gives you is a viewing key, and a viewing key is all-or-nothing:
@@ -32,7 +27,7 @@ export function Problem() {
             </div>
           </div>
           <figure className="col-span-12 mx-auto mt-12 w-full max-w-[440px] lg:col-span-5 lg:col-start-8 lg:mt-0 lg:max-w-none">
-            <div data-fade="">
+            <div data-curtain-scene="">
             <Image
               src="/visuals/ledger.webp"
               width={1122}
@@ -46,15 +41,15 @@ export function Problem() {
           </figure>
         </div>
         <div className="mt-[var(--s-content)]">
-          <div ref={metrics}>
+          <div>
             <Triptych>
-              <TriptychCell data-enter="">
+              <TriptychCell>
                 <Metric value="$1.7B" count={{ prefix: '$', to: 1.7, decimals: 1, suffix: 'B' }} caption="of ZEC sealed in the shielded pool when Ironwood activated." />
               </TriptychCell>
-              <TriptychCell data-enter="">
+              <TriptychCell>
                 <Metric value="0" caption="ways to prove any of it without showing all of it." />
               </TriptychCell>
-              <TriptychCell data-enter="">
+              <TriptychCell>
                 <Metric value="1" caption="disclosure tool, and it reveals everything, forever." />
               </TriptychCell>
             </Triptych>

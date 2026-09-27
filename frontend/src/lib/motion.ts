@@ -97,6 +97,29 @@ export const TREE = {
   ringGap: 8,
 } as const
 
+/** The curtain (§5.3): no pin, scrubbed while the section's top rises between these. */
+export const CURTAIN = {
+  start: 'top 85%',
+  end: 'top 15%',
+  scrub: 0.65,
+  /** how narrow a drape bunches before it draws off into the margin */
+  gathered: 0.05,
+  /** the scene behind pushes in from this */
+  push: 1.06,
+} as const
+
+/** The redaction read (§5.4): a pinned sentence read at reading pace. */
+export const READ = {
+  pinDesktop: '+=170%',
+  pinMobile: '+=120%',
+  scrub: 0.65,
+  /** per open word: its bar's travel, and the gap to the next word */
+  word: 0.9,
+  each: 0.26,
+  /** the deliberate pause before the fact */
+  pause: 0.6,
+} as const
+
 /** Rebuild layout-dependent timelines only on a meaningful resize (§8); ignores address-bar jitter. */
 export const RESIZE = { dx: 2, dy: 150 } as const
 
