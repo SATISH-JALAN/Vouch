@@ -20,7 +20,7 @@ export function Rule({ label, dark = false, className }: { label?: string; dark?
 
 export function Eyebrow({ children, className, dark }: { children: ReactNode; className?: string; dark?: boolean }) {
   return (
-    <p data-letters="" className={cx('t-eyebrow', dark ? 'text-on-dark-2' : 'text-ink-3', className)}>
+    <p className={cx('t-eyebrow', dark ? 'text-on-dark-2' : 'text-ink-3', className)}>
       {children}
     </p>
   )

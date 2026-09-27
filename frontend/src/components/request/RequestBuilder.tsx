@@ -10,6 +10,7 @@ import { CopyBlock } from '@/components/ui/CopyBlock'
 import { Hash } from '@/components/ui/Hash'
 import { DropMarch, PickBox, PickCheck } from '@/components/motion/Pick'
 import { BtnLabel } from '@/components/motion/BtnLabel'
+import { KineticValue } from '@/components/motion/KineticValue'
 import { toZatoshi, trimZec, useRequest } from './store'
 
 const CLAIMS: { kind: ClaimKind; label: string; hint: string }[] = [
@@ -65,6 +66,9 @@ export function RequestBuilder() {
   const { request, errors, roundUp, zat } = useBuilt(id)
   // the field keeps what is typed; the store gets a clamped number, so clearing "7" to type "30" works
   const [expiryText, setExpiryText] = useState(String(s.expiryDays))
+  // the summary sentence updates on a commit (blur, Enter, a unit or a round-up), never per keystroke
+  const [commit, setCommit] = useState(0)
+  const bump = () => setCommit((c) => c + 1)
   useEffect(() => setExpiryText(String(s.expiryDays)), [s.expiryDays])
   const commitExpiry = () => {
     const n = Number(expiryText)
@@ -126,6 +130,8 @@ export function RequestBuilder() {
               className="field t-data flex-1"
               value={s.amount}
               onChange={(e) => s.set({ amount: e.target.value })}
+              onBlur={bump}
+              onKeyDown={(e) => e.key === 'Enter' && bump()}
               aria-invalid={!!errors.amount}
               aria-describedby="amount-help"
             />
@@ -134,7 +140,10 @@ export function RequestBuilder() {
                 <button
                   key={u}
                   type="button"
-                  onClick={() => s.setUnit(u)}
+                  onClick={() => {
+                    s.setUnit(u)
+                    bump()
+                  }}
                   aria-pressed={s.unit === u}
                   className={cx('pick pick-ink t-data-sm px-4 uppercase tracking-[0.1em]', s.unit === u ? 'text-bone' : 'text-ink-2 hover:bg-bone-2')}
                 >
@@ -149,7 +158,10 @@ export function RequestBuilder() {
               <button
                 type="button"
                 className="ml-3 uppercase tracking-[0.12em] text-ink underline underline-offset-4"
-                onClick={() => s.set({ amount: s.unit === 'ZEC' ? trimZec(formatZec(roundUp).replace(/,/g, '')) : roundUp.toString() })}
+                onClick={() => {
+                  s.set({ amount: s.unit === 'ZEC' ? trimZec(formatZec(roundUp).replace(/,/g, '')) : roundUp.toString() })
+                  bump()
+                }}
               >
                 Round up
               </button>
@@ -243,7 +255,7 @@ export function RequestBuilder() {
           {request && link && encoded ? (
             <>
               <p className="t-body text-ink">
-                Asks for proof that the holder holds at least <span className="font-mono">{sentence(request).value}</span>, for{' '}
+                Asks for proof that the holder holds at least <KineticValue className="font-mono" value={sentence(request).value} commit={commit} />, for{' '}
                 <span className="font-mono">{request.audience}</span>, valid {request.expiryDays} {request.expiryDays === 1 ? 'day' : 'days'}
                 {request.respondBy ? `, answered by ${formatDate(request.respondBy)}` : ''}
                 {request.bind ? ', bound to their Solana account' : ''}.

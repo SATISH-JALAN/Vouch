@@ -50,7 +50,7 @@ export function Closing() {
   )
 
   return (
-    <section ref={root} data-band="shielded" aria-labelledby="closing-h" className="relative isolate overflow-hidden bg-shielded text-on-dark">
+    <section ref={root} data-band="shielded" data-seam-band="" aria-labelledby="closing-h" className="relative isolate overflow-hidden bg-shielded text-on-dark">
       <div data-closing-plate="" className="absolute inset-0 -z-10">
         <Image
           src="/visuals/closing.webp"
@@ -63,7 +63,7 @@ export function Closing() {
         <span data-closing-slot="" aria-hidden className="pointer-events-none absolute" />
       </div>
       <div className="absolute inset-0 -z-10 bg-shielded/35" aria-hidden />
-      <div className="wrap flex min-h-[clamp(620px,50vw,880px)] flex-col items-center justify-between pb-[clamp(48px,5vw,80px)] pt-[clamp(56px,6vw,104px)] text-center">
+      <div data-seam-drift="" className="wrap flex min-h-[clamp(620px,50vw,880px)] flex-col items-center justify-between pb-[clamp(48px,5vw,80px)] pt-[clamp(56px,6vw,104px)] text-center">
         <h2 ref={title} id="closing-h" data-line-reveal="" className="t-display-l max-w-[16ch] text-on-dark lg:max-w-none">
           Prove one thing. <Accent>Keep the rest.</Accent>
         </h2>

@@ -1,11 +1,11 @@
 'use client'
 
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { useRef } from 'react'
 import { gsap, useGSAP } from '@/lib/gsap'
-import { useEnter } from '@/components/motion/hooks'
 import { scrollToTarget } from '@/lib/lenis'
-import { D, motionOK } from '@/lib/motion'
+import { motionOK } from '@/lib/motion'
 import { LINKS, SUBMISSION } from '@/lib/site'
 
 const LINKS_ROW: { href: string; label: string; external?: boolean }[] = [
@@ -25,7 +25,9 @@ const LINKS_ROW: { href: string; label: string; external?: boolean }[] = [
 export function Footer() {
   const root = useRef<HTMLElement>(null)
   const word = useRef<HTMLDivElement>(null)
-  useEnter(root, { start: 'top 92%', y: 10, stagger: 0.05, duration: D.sm })
+  // on paper routes the footer is the one dark band: it opens from a seam. On the landing page the
+  // closing scene is already dark above it, so there is no seam to open
+  const seam = usePathname() !== '/'
 
   useGSAP(
     () => {
@@ -50,8 +52,8 @@ export function Footer() {
   }
 
   return (
-    <footer ref={root} data-band="shielded" className="relative overflow-hidden border-t border-rule-dark bg-shielded text-on-dark">
-      <div className="wrap t-data-sm flex flex-col gap-6 pb-6 pt-[clamp(56px,5vw,88px)] text-on-dark-2" data-enter="">
+    <footer ref={root} data-band="shielded" data-seam-band={seam ? '' : undefined} className="relative overflow-hidden border-t border-rule-dark bg-shielded text-on-dark">
+      <div className="wrap t-data-sm flex flex-col gap-6 pb-6 pt-[clamp(56px,5vw,88px)] text-on-dark-2" data-seam-drift="">
         <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-5">
           <nav aria-label="Footer" className="flex flex-wrap gap-x-7 gap-y-3 uppercase tracking-[0.16em]">
             {LINKS_ROW.map((l) =>

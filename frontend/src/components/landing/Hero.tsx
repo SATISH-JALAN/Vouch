@@ -8,6 +8,7 @@ import { useIntro } from '@/lib/store'
 import { scrollToTarget } from '@/lib/lenis'
 import { useMagnetic } from '@/components/motion/hooks'
 import { useIris } from '@/components/motion/useIris'
+import { ScrollCue } from '@/components/motion/ScrollCue'
 import { HeroMedia } from './HeroMedia'
 import { Redact } from '@/components/ui/Redact'
 import { BtnLabel } from '@/components/motion/BtnLabel'
@@ -56,6 +57,8 @@ export function Hero() {
   return (
     <section ref={root} data-band="shielded" data-iris-stage="" className="relative flex min-h-[90vh] flex-col overflow-hidden bg-shielded text-on-dark" aria-labelledby="hero-h">
       <HeroMedia />
+      {/* desktop only: on a phone the hero's own copy already fills the screen */}
+      <ScrollCue className="absolute bottom-[clamp(56px,7vw,112px)] right-[var(--gutter)] z-10 hidden text-on-dark/80 lg:block" />
       {/* where the iris ends: the through-line object takes over from the painting here */}
       <span data-iris-slot="" aria-hidden className="pointer-events-none absolute" />
 

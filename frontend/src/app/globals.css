@@ -193,7 +193,6 @@ html.lenis, html.lenis body { height: auto; }
 /* a framed painting is uncovered from the bottom edge up while the image itself eases down
    out of a slight zoom; a feather-edged plate (no frame to clip against) simply rises and settles */
 .js-ready [data-unveil] { clip-path: inset(100% 0 0 0); }
-.js-ready [data-fade] { opacity: 0; }
 
 /* the lender's desk inside its dark panel: a long, soft dissolve into the panel — on small screens
    downward into the text, on large screens leftward behind the words */

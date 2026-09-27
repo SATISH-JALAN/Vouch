@@ -44,7 +44,7 @@ export function Problem() {
           <div>
             <Triptych>
               <TriptychCell>
-                <Metric value="$1.7B" count={{ prefix: '$', to: 1.7, decimals: 1, suffix: 'B' }} caption="of ZEC sealed in the shielded pool when Ironwood activated." />
+                <Metric value="$1.7B" roll caption="of ZEC sealed in the shielded pool when Ironwood activated." />
               </TriptychCell>
               <TriptychCell>
                 <Metric value="0" caption="ways to prove any of it without showing all of it." />

@@ -135,6 +135,19 @@ export const VERIFY = {
   scramble: 0.6,
 } as const
 
+/** Seams between a dark band and paper (§7.2). */
+export const SEAM = {
+  scrub: 0.65,
+  /** px: content on the far side of a seam moves at its own rate as the edge passes */
+  drift: 56,
+} as const
+
+/** The hero's scroll cue (§6.5): degrees per second at rest, and how hard scrolling pushes it. */
+export const CUE = {
+  spin: 14,
+  push: 0.06,
+} as const
+
 /** Rebuild layout-dependent timelines only on a meaningful resize (§8); ignores address-bar jitter. */
 export const RESIZE = { dx: 2, dy: 150 } as const
 

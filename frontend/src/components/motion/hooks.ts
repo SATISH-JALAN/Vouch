@@ -40,55 +40,6 @@ export function useLineReveal<T extends HTMLElement>(ref: RefObject<T | null>, s
   )
 }
 
-/** Fade-and-rise for [data-enter] children, once. */
-export function useEnter<T extends HTMLElement>(
-  ref: RefObject<T | null>,
-  opts: { start?: string; y?: number; stagger?: number; duration?: number } = {},
-) {
-  const { start = 'top 82%', y = 20, stagger = STAGGER.card, duration = D.md } = opts
-  useGSAP(
-    () => {
-      const el = ref.current
-      if (!el) return
-      const items = el.querySelectorAll<HTMLElement>('[data-enter]')
-      if (!motionOK()) {
-        gsap.set(items, { opacity: 1 })
-        return
-      }
-      gsap.fromTo(
-        items,
-        { opacity: 0, y },
-        { opacity: 1, y: 0, duration, ease: E.out, stagger, scrollTrigger: { trigger: el, start, once: true } },
-      )
-    },
-    { scope: ref },
-  )
-}
-
-/** 12.4 — count up on enter, snapped, tabular. Never below the final decimals. */
-export function useCounter<T extends HTMLElement>(ref: RefObject<T | null>, to: number, decimals = 0, start = 'top 80%') {
-  useGSAP(
-    () => {
-      const el = ref.current
-      if (!el || !motionOK() || to === 0) return
-      const fmt = (n: number) => n.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-      const state = { n: 0 }
-      el.textContent = fmt(0)
-      gsap.to(state, {
-        n: to,
-        duration: D.lg,
-        ease: E.out,
-        snap: { n: 1 / 10 ** decimals },
-        onUpdate: () => {
-          el.textContent = fmt(state.n)
-        },
-        scrollTrigger: { trigger: el, start, once: true },
-      })
-    },
-    { scope: ref },
-  )
-}
-
 /**
  * Magnetic pull for one or two primary CTAs per page (MOTION.md §6.2). The shell never travels more
  * than MAGNET.max px; its label travels further, so the button has depth. Settles back, never bounces.

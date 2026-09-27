@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { Suspense, useCallback, useEffect, useMemo, useState, type Dispatch, type DragEvent, type SetStateAction } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type DragEvent, type SetStateAction } from 'react'
 import type { ProofRequest, ServiceStatus, VerificationResult } from '@/lib/data/types'
 import { decodeRequestDetailed, encodeRequest, cliCommand, demoCliCommand, newRequestId } from '@/lib/request'
 import { verify } from '@/lib/data/verifier'
@@ -19,6 +19,7 @@ import { RevealTable } from '@/components/ui/RevealTable'
 import { Verdict, present } from '@/components/ui/Verdict'
 import { SourceNote } from '@/components/verify/SourceNote'
 import { flyToken } from '@/lib/dropToken'
+import { assembleInto } from '@/lib/assemble'
 import { DropMarch, PickBox, PickCheck } from '@/components/motion/Pick'
 import { CopyButton } from '@/components/motion/CopyButton'
 import { BtnLabel } from '@/components/motion/BtnLabel'
@@ -65,6 +66,21 @@ function Console({ r }: { r: string | null }) {
   const [dragging, setDragging] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [proof, setProof] = useState<Proved | null>(null)
+  const handover = useRef<HTMLElement>(null)
+  const assembled = useRef(false)
+
+  // the first proof this page produces is assembled out of scattered hex (MOTION.md §7.6), once
+  useEffect(() => {
+    if (!proof || assembled.current || proof.result.verdict.kind !== 'Valid') return
+    assembled.current = true
+    const id = requestAnimationFrame(() => {
+      const el = handover.current
+      const hash = el?.querySelector('[aria-label^="Copy checksum"]')
+      const r = hash?.getBoundingClientRect()
+      if (r && r.top > 0 && r.bottom < window.innerHeight) assembleInto(hash!, el!.querySelector('[data-verdict-mark]')?.closest('.rounded-panel') ?? el)
+    })
+    return () => cancelAnimationFrame(id)
+  }, [proof])
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [revoked, setRevoked] = useState<Set<string>>(new Set())
 
@@ -328,7 +344,7 @@ function Console({ r }: { r: string | null }) {
       </section>
 
       {proof && (
-        <section aria-labelledby="handover-h" className="space-y-6">
+        <section ref={handover} aria-labelledby="handover-h" className="space-y-6">
           <h2 id="handover-h" className="t-display-m text-ink">
             {proof.result.verdict.kind === 'Valid' ? 'Hand it over.' : 'Do not send this one.'}
           </h2>

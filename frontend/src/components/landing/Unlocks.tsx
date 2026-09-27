@@ -47,12 +47,13 @@ export function Unlocks() {
         gsap.set(root.current!.querySelectorAll('[data-enter]'), { opacity: 1 })
         return
       }
-      // the painting is unveiled, then its words rise onto it
+      // the painting is unveiled and its words rise onto it before it has finished: they start once the
+      // unveil (power4.out) has covered about 60% of its travel, so nobody waits to read
       for (const card of cards) {
         gsap.fromTo(
           card.querySelectorAll('[data-enter]'),
           { opacity: 0, y: 28 },
-          { opacity: 1, y: 0, duration: D.lg, ease: E.big, stagger: 0.08, delay: 0.55, scrollTrigger: { trigger: card, start: 'top 82%', once: true } },
+          { opacity: 1, y: 0, duration: D.md, ease: E.big, stagger: 0.06, delay: 0.27, scrollTrigger: { trigger: card, start: 'top 84%', once: true } },
         )
       }
     },

@@ -1,15 +1,16 @@
 'use client'
 
 import { gsap, ScrollTrigger, SplitText } from '@/lib/gsap'
-import { D, E } from '@/lib/motion'
+import { D, E, SEAM } from '@/lib/motion'
 
 /**
  * Page-wide motion driven by data attributes, so any section gets it by markup alone:
  *  [data-rule]        full-bleed rules draw in from the left
- *  [data-letters]     eyebrows: letters surface out of a soft blur, one after another
  *  [data-parallax=n]  an oversized image drifts ±n% against the scroll
  *  [data-unveil]      a framed painting is uncovered bottom-up as the image eases out of a slight zoom
- *  [data-fade]        a feather-edged plate rises and settles, with no hard edge to clip
+ *  [data-seam-band]   a dark band meeting paper: its top edge draws across as a hairline, then it
+ *                     opens downward from that seam while its [data-seam-drift] content moves at its
+ *                     own rate (MOTION.md §7.2). The edge stays hard: no gradient, no cross-fade
  * Called once per route after the page's own triggers exist; returns the cleanup.
  */
 export function pageEffects(): () => void {
@@ -19,19 +20,6 @@ export function pageEffects(): () => void {
       once: true,
       onEnter: (els) => gsap.to(els, { scaleX: 1, duration: D.xl, ease: E.big, stagger: 0.08 }),
     })
-
-    for (const el of gsap.utils.toArray<HTMLElement>('[data-letters]')) {
-      const split = SplitText.create(el, { type: 'chars' })
-      gsap.from(split.chars, {
-        opacity: 0,
-        filter: 'blur(6px)',
-        duration: D.lg,
-        ease: E.out,
-        stagger: 0.028,
-        scrollTrigger: { trigger: el, start: 'top 92%', once: true },
-        onComplete: () => split.revert(),
-      })
-    }
 
     for (const el of gsap.utils.toArray<HTMLElement>('[data-parallax]')) {
       const amt = parseFloat(el.dataset.parallax || '8')
@@ -55,11 +43,15 @@ export function pageEffects(): () => void {
       if (img) tl.fromTo(img, { scale: 1.18 }, { scale: 1, duration: 1.6, ease: 'power4.out' }, 0)
     }
 
-    ScrollTrigger.batch('[data-fade]', {
-      start: 'top 84%',
-      once: true,
-      onEnter: (els) => gsap.fromTo(els, { opacity: 0, y: 26, scale: 1.03 }, { opacity: 1, y: 0, scale: 1, duration: D.xl, ease: E.out, stagger: 0.1 }),
-    })
+    for (const el of gsap.utils.toArray<HTMLElement>('[data-seam-band]')) {
+      const drift = el.querySelectorAll('[data-seam-drift]')
+      gsap
+        .timeline({ scrollTrigger: { trigger: el, start: 'top bottom', end: 'top 45%', scrub: SEAM.scrub } })
+        // the band's own top row is the hairline: it draws out from the centre, then the band opens from it
+        .fromTo(el, { clipPath: 'inset(0px 50% calc(100% - 1px) 50%)' }, { clipPath: 'inset(0px 0% calc(100% - 1px) 0%)', duration: 0.3, ease: 'power2.out' })
+        .to(el, { clipPath: 'inset(0px 0% 0% 0%)', duration: 0.7, ease: 'power2.inOut' })
+        .fromTo(drift, { y: SEAM.drift }, { y: 0, duration: 1, ease: 'none' }, 0)
+    }
   })
 
   return () => ctx.revert()
