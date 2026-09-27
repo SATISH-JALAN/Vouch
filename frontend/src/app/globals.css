@@ -461,16 +461,12 @@ textarea.field { height: auto; padding-block: 12px; resize: vertical; }
 
 /* ── custom cursor ──────────────────────────────────────────────────────── */
 
-.has-cursor, .has-cursor a, .has-cursor button, .has-cursor label, .has-cursor [role='button'] { cursor: none; }
-.has-cursor input, .has-cursor textarea, .has-cursor select { cursor: auto; }
-
-/* the dot: ink on paper, light on the dark bands. As a link disc it takes the paper colour and a
-   difference blend, which inverts the words under it on either ground. Never blended over the seal. */
-.cursor-dot { background: var(--color-ink); }
-.cursor-dot[data-dark='true'] { background: var(--color-on-dark); }
-.cursor-dot[data-state='link'] { background: var(--color-bone); mix-blend-mode: difference; }
-/* over a painting the ring's hairline inverts whatever is under it, so it reads on any scene */
-.cursor-ring[data-state='lens'] { border-color: var(--color-bone); mix-blend-mode: difference; }
+/* the system cursor stays; the dot rides with it. The dot and the ring invert whatever is under
+   them (paper colour, difference blend): dark on paper, light on the dark bands, visible on any
+   painting. Never blended over the seal, where difference turns red cyan: there it is plain ink. */
+.cursor-dot { background: var(--color-bone); mix-blend-mode: difference; }
+.cursor-dot[data-state='seal'] { background: var(--color-ink); mix-blend-mode: normal; }
+.cursor-ring { border: 1px solid var(--color-bone); color: var(--color-bone); mix-blend-mode: difference; }
 
 /* the aperture lens: a painting is veiled very slightly everywhere except under the ring.
    --lx/--ly follow the cursor; --lens-r is set from CURSOR.ring by the element. */

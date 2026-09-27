@@ -39,10 +39,10 @@ export const MICRO = {
 
 export const CURSOR = {
   /** fraction of the remaining distance covered per 60fps frame; frame-rate corrected in Cursor */
-  lerp: 0.18,
-  dot: 8,
-  /** link state: the dot grows to this and inverts what is under it */
-  link: 44,
+  lerp: 0.32,
+  dot: 12,
+  /** over a link or button: the dot grows to this disc */
+  hover: 36,
   /** lens and label states: a thin ring this wide */
   ring: 72,
 } as const
