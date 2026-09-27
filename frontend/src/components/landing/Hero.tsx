@@ -7,6 +7,7 @@ import { D, E, STAGGER, isDesktop, motionOK } from '@/lib/motion'
 import { useIntro } from '@/lib/store'
 import { scrollToTarget } from '@/lib/lenis'
 import { useMagnetic } from '@/components/motion/hooks'
+import { useIris } from '@/components/motion/useIris'
 import { HeroMedia } from './HeroMedia'
 import { Redact } from '@/components/ui/Redact'
 import { BtnLabel } from '@/components/motion/BtnLabel'
@@ -24,6 +25,8 @@ export function Hero() {
   const introDone = useIntro((s) => s.introDone)
 
   useMagnetic(primary)
+  // the headline's entrance plays first; the scroll stage exists only once the preloader has handed off
+  useIris(root, introDone)
 
   useGSAP(
     () => {
@@ -51,19 +54,19 @@ export function Hero() {
   )
 
   return (
-    <section ref={root} data-band="shielded" className="relative flex min-h-[90vh] flex-col overflow-hidden bg-shielded text-on-dark" aria-labelledby="hero-h">
+    <section ref={root} data-band="shielded" data-iris-stage="" className="relative flex min-h-[90vh] flex-col overflow-hidden bg-shielded text-on-dark" aria-labelledby="hero-h">
       <HeroMedia />
 
       <div className="wrap grid-12 relative flex-1 content-start items-baseline pb-[clamp(56px,7vw,112px)] pt-[clamp(128px,14vw,200px)] md:content-end">
         <div className="col-span-12 lg:col-span-8">
           <h1 id="hero-h" className="t-display-xl t-hero text-on-dark">
-            <span className="block">
+            <span data-iris-lift="" className="block">
               <Redact reveal tone="on-dark">Prove what</Redact>
             </span>
-            <span className="block">
+            <span data-iris-lift="" className="block">
               <Redact reveal tone="on-dark">you hold.</Redact>
             </span>
-            <span className="block">
+            <span data-iris-lift="" className="block">
               <Redact reveal tone="on-dark">Reveal</Redact>{' '}
               <Redact reveal tone="on-dark" className="text-seal">
                 nothing else.
@@ -71,24 +74,26 @@ export function Hero() {
             </span>
           </h1>
 
-          <p data-enter="" className="t-prose mt-10 max-w-[54ch] text-on-dark/80">
-            Zcash gives you one disclosure tool: a viewing key that reveals everything you have ever received, permanently. Vouch proves a
-            single fact instead.
-          </p>
+          <div data-iris-lift="">
+            <p data-enter="" className="t-prose mt-10 max-w-[54ch] text-on-dark/80">
+              Zcash gives you one disclosure tool: a viewing key that reveals everything you have ever received, permanently. Vouch proves a
+              single fact instead.
+            </p>
 
-          <div className="mt-11 flex flex-wrap gap-3">
-            <Link ref={primary} data-enter="" href="/verify" className="btn btn-on-dark">
-              <BtnLabel>Verify a proof</BtnLabel>
-            </Link>
-            <button ref={secondary} data-enter="" type="button" className="btn btn-ghost-dark" onClick={() => scrollToTarget('#lender')}>
-              <BtnLabel>See what a lender learns</BtnLabel>
-            </button>
+            <div className="mt-11 flex flex-wrap gap-3">
+              <Link ref={primary} data-enter="" href="/verify" className="btn btn-on-dark">
+                <BtnLabel>Verify a proof</BtnLabel>
+              </Link>
+              <button ref={secondary} data-enter="" type="button" className="btn btn-ghost-dark" onClick={() => scrollToTarget('#lender')}>
+                <BtnLabel>See what a lender learns</BtnLabel>
+              </button>
+            </div>
+
+            <p data-enter="" className="t-data-sm mt-10 uppercase tracking-[0.16em] text-on-dark/70">
+              Built on <span className="text-on-dark">Zcash</span> · <span className="text-on-dark">Ironwood pool</span> ·{' '}
+              <span className="text-on-dark">Solana</span>
+            </p>
           </div>
-
-          <p data-enter="" className="t-data-sm mt-10 uppercase tracking-[0.16em] text-on-dark/70">
-            Built on <span className="text-on-dark">Zcash</span> · <span className="text-on-dark">Ironwood pool</span> ·{' '}
-            <span className="text-on-dark">Solana</span>
-          </p>
         </div>
       </div>
     </section>

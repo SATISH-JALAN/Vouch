@@ -125,9 +125,16 @@ export function installButtons(): () => void {
     const el = btnOf(e.target)
     if (el && e.button === 0 && !el.matches(':disabled')) press(el)
   }
+  // after a press ends, anything the browser swallowed along the way (a drag, a cancel) is settled
+  // on the next frame: a button the pointer is no longer over does not stay filled
+  const settle = (el: HTMLElement) => requestAnimationFrame(() => {
+    if (!el.matches(':hover')) cool(el)
+  })
   const onUp = (e: PointerEvent) => {
     const el = btnOf(e.target)
-    if (el) release(el)
+    if (!el) return
+    release(el)
+    settle(el)
   }
   // dragging a link off itself starts a native drag, which swallows pointerout (and, depending on
   // the browser, sends pointercancel or nothing): settle the button either way
@@ -136,6 +143,7 @@ export function installButtons(): () => void {
     if (!el) return
     release(el)
     cool(el)
+    settle(el)
   }
 
   const observer = new MutationObserver((records) => {
@@ -156,6 +164,7 @@ export function installButtons(): () => void {
   document.addEventListener('pointerup', onUp, { passive: true })
   document.addEventListener('pointercancel', onCancel, { passive: true })
   document.addEventListener('dragstart', onCancel, { passive: true })
+  document.addEventListener('dragend', onCancel, { passive: true })
 
   return () => {
     observer.disconnect()
@@ -165,6 +174,7 @@ export function installButtons(): () => void {
     document.removeEventListener('pointerup', onUp)
     document.removeEventListener('pointercancel', onCancel)
     document.removeEventListener('dragstart', onCancel)
+    document.removeEventListener('dragend', onCancel)
     hot.clear()
   }
 }

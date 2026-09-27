@@ -50,7 +50,7 @@ export function Ticker() {
   )
 
   return (
-    <div className="relative z-20 h-10 overflow-hidden border-b border-rule-dark bg-shielded" data-band="shielded">
+    <div data-ticker="" className="relative z-20 h-10 overflow-hidden border-b border-rule-dark bg-shielded" data-band="shielded">
       <p className="sr-only">
         Vouch · shielded pool {SHIELDED_POOL_USD} · claims proven 0 · viewing keys surrendered 0 · Ironwood · block {formatInt(ANCHOR.height)}
       </p>

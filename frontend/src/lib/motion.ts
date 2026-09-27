@@ -56,6 +56,24 @@ export const MAGNET = {
   radius: 110,
 } as const
 
+/** The iris handoff (§5.1). Pin lengths are scroll distance past the hero's top. */
+export const IRIS = {
+  pinDesktop: '+=180%',
+  pinMobile: '+=110%',
+  scrub: 0.65,
+  /** the painting is only 1536px wide: push in no further than this, and end on a larger circle */
+  pushMax: 1.8,
+  /** the portrait source is softer still on a 2× phone screen: a gentler push and a larger end circle */
+  pushMobile: 1.4,
+  endMinMobile: 56,
+  /** the end circle frames the whole card, not just the wax: this much of the pushed-in card size */
+  endFrame: 0.62,
+  endMin: 44,
+  endMax: 120,
+  /** the video hands over to the laid-out still as the pin starts, and back at the top */
+  videoFade: 0.3,
+} as const
+
 /** Rebuild layout-dependent timelines only on a meaningful resize (§8); ignores address-bar jitter. */
 export const RESIZE = { dx: 2, dy: 150 } as const
 
@@ -70,6 +88,7 @@ export const BUDGET = {
 /** Media queries shared with gsap.matchMedia. */
 export const MQ = {
   desktop: '(min-width: 1024px)',
+  mobile: '(max-width: 1023.98px)',
   motion: '(prefers-reduced-motion: no-preference)',
   fine: '(pointer: fine)',
   /** a mouse, not a stylus or a finger: the custom cursor and hover-driven detail */

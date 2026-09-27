@@ -214,6 +214,9 @@ html.lenis, html.lenis body { height: auto; }
   .js-ready [data-clip-enter] { clip-path: none; }
 }
 
+/* the iris stage fills the viewport while it is pinned, so nothing of the next section shows under it */
+.js-ready [data-iris-stage] { min-height: 100vh; min-height: 100svh; }
+
 /* ── redaction ──────────────────────────────────────────────────────────── */
 
 .redact { position: relative; display: inline-block; }
@@ -310,6 +313,8 @@ html:not(.js-ready) .btn-primary:hover { background: #2a2e2b; }
   transition: background-size 0.22s cubic-bezier(0.215, 0.61, 0.355, 1), color 0.22s;
 }
 .link-draw:hover, .link-draw[aria-current='page'] { background-size: 100% 1px; }
+/* in the header the sliding dot marks the current route instead */
+header .link-draw[aria-current='page']:not(:hover) { background-size: 0% 1px; }
 /* in from the left, out to the right (§6.2): the anchor flips only while the line is full or empty */
 .link-draw { background-position: 100% 100%; }
 .link-draw:hover { background-position: 0 100%; }
@@ -330,6 +335,9 @@ html:not(.js-ready) .btn-primary:hover { background: #2a2e2b; }
 .field:focus-visible { outline: 2px solid var(--color-seal); outline-offset: 3px; }
 .field::placeholder { color: var(--color-ink-3); }
 textarea.field { height: auto; padding-block: 12px; resize: vertical; }
+
+/* the header's logo crossfades with the header when the ground changes (the mark colours itself inline) */
+.nav-mark svg, .nav-mark .wordmark { transition: color 0.3s; }
 
 /* ── custom cursor ──────────────────────────────────────────────────────── */
 

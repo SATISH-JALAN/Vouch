@@ -11,6 +11,8 @@ import { installButtons } from '@/lib/buttons'
 declare global {
   interface Window {
     __vouchReady?: boolean
+    /** QA: live ScrollTrigger count (MOTION.md §9 budget) */
+    __st?: () => number
   }
 }
 
@@ -27,6 +29,7 @@ export function MotionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     window.__vouchReady = true
+    window.__st = () => ScrollTrigger.getAll().length
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     let buttons: (() => void) | undefined
     if (reduced || !motionOK()) {
@@ -39,7 +42,16 @@ export function MotionProvider({ children }: { children: ReactNode }) {
     }
     // Masks and triggers must measure against the real fonts, not fallback metrics.
     document.fonts?.ready.then(() => ScrollTrigger.refresh())
+    // Pins measured while the preloader held the page still: measure again once it lets go.
+    const html = document.documentElement
+    const released = new MutationObserver(() => {
+      if (html.classList.contains('preload')) return
+      released.disconnect()
+      ScrollTrigger.refresh()
+    })
+    if (html.classList.contains('preload')) released.observe(html, { attributes: true, attributeFilter: ['class'] })
     return () => {
+      released.disconnect()
       buttons?.()
       stopLenis()
     }
