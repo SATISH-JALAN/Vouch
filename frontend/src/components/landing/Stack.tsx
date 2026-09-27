@@ -47,7 +47,7 @@ export function Stack() {
       <div className="wrap pb-[var(--s-top)] pt-[var(--s-top)]">
         <SectionHead eyebrow="THE STACK" title={<>Built on what <Accent>already works.</Accent></>} titleRef={title} lineReveal />
 
-        <div className="section-body space-y-[var(--s-content)]">
+        <div className="section-body space-y-[clamp(40px,6vh,64px)]">
           <StackMap active={place} onActive={setPlace} />
 
           <div className="grid grid-cols-1 gap-px overflow-hidden rounded-panel border border-border bg-border sm:grid-cols-2 lg:grid-cols-4">

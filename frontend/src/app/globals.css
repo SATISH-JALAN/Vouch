@@ -60,11 +60,12 @@
   color-scheme: light;
   --gutter: clamp(20px, 3.6vw, 76px);
   --maxw: 1760px;
-  /* section anatomy (§4.3) — exact at ≥1440, compressed on small screens */
-  --s-top: clamp(64px, 6.667vw, 96px);
+  /* section anatomy (§4.3). Top and end together make one rhythm between sections: about
+     clamp(96px, 14vh, 168px) from one section's last line to the next section's first */
+  --s-top: clamp(48px, 7vh, 84px);
   --s-eyebrow: clamp(28px, 3.06vw, 44px);
-  --s-content: clamp(64px, 7.78vw, 112px);
-  --s-end: clamp(96px, 10vw, 160px);
+  --s-content: clamp(56px, 7vh, 96px);
+  --s-end: clamp(48px, 7vh, 84px);
 }
 
 /* ── base ───────────────────────────────────────────────────────────────── */
