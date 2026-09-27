@@ -136,9 +136,14 @@ function build(section: HTMLElement, desktop: boolean) {
       animation: tl,
       onEnter: () => hold(true),
       onLeaveBack: () => hold(false),
-      // layers only while the stage runs (§8): promoted on the way in, released on the way out
-      onToggle: (self) => gsap.set([frame, plate], { willChange: self.isActive ? 'transform, clip-path' : 'auto' }),
     })
+    // layers only while the stage can be seen (§8): the hero is on screen from the first paint, so they
+    // are promoted from the start (creating them as the pin began cost a frame). They are released
+    // once the hero has scrolled fully away: dropping them as the pin let go re-rasterised the painting
+    // in the same frame as the unpin
+    const promote = (on: boolean) => gsap.set([frame, plate], { willChange: on ? 'transform, clip-path' : 'auto' })
+    promote(true)
+    ScrollTrigger.create({ start: () => st.end + window.innerHeight, onEnter: () => promote(false), onLeaveBack: () => promote(true) })
     // the pin's first frames must not wait on a decode: it is the LCP image, so this is normally a no-op
     void plate.querySelector('img')?.decode().catch(() => {})
 

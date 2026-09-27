@@ -27,6 +27,8 @@ export function Curtain({ line }: { line: string }) {
         const [tL, tR] = gsap.utils.toArray<HTMLElement>('[data-seam]', el)
         const scene = gsap.utils.toArray<HTMLElement>('[data-curtain-scene]', section)
         const full = 'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)'
+        // decode the scene now, not on the frame it first moves (the ledger is a large painting)
+        scene.forEach((s) => s.querySelectorAll('img').forEach((img) => void img.decode().catch(() => {})))
         gsap.set([L, R], { clipPath: full, scaleX: 1, xPercent: 0 })
 
         const tl = gsap.timeline({ defaults: { ease: 'none' } })

@@ -24,7 +24,8 @@ export function ScrollCue({ className }: { className?: string }) {
       let angle = 0
       let last = ''
       const tick = (_t: number, dt: number) => {
-        if (getComputedStyle(el).visibility === 'hidden') return
+        // the iris hides it with an inline autoAlpha: reading that costs nothing, a computed style would
+        if (el.style.visibility === 'hidden') return
         const v = Math.abs(getLenis()?.velocity ?? 0)
         angle = (angle + (CUE.spin + v * CUE.push * 60) * (dt / 1000)) % 360
         const tr = `rotate(${angle.toFixed(2)} 50 50)`

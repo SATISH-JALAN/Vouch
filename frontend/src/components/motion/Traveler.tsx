@@ -98,6 +98,12 @@ export function Traveler() {
         }
         if (k === 0 && seated) op = Math.min(op, handover)
 
+        // nothing to draw: no layout reads, and at most one write
+        if (op <= 0.001) {
+          if (last.o !== '0') svg.style.opacity = last.o = '0'
+          return
+        }
+
         const e = seated ? 0 : inOut(clamp(t))
         const A = seats[k]!.slot.el.getBoundingClientRect()
         const B = seated ? A : seats[k + 1]!.slot.el.getBoundingClientRect()
