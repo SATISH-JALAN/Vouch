@@ -1,13 +1,16 @@
 import type { Preset } from './types.ts'
 import { DEMO_AUDIENCE } from './chain.ts'
 
-// Every preset is a real proof written by `pof-prove demo fixtures` (backend) and served from
-// /proofs. They verify against the demo anchor: real Ironwood notes and real Halo2 proofs, in a
-// published demo tree rather than mainnet's. The page says so wherever a demo anchor is used.
+// Every preset is a real proof served from /proofs. The first was made by `pof-prove prove` from a
+// real Zcash testnet wallet, against a testnet anchor rebuilt by pof-anchor. The rest were written
+// by `pof-prove demo fixtures` (backend) and verify against the demo anchor: real Ironwood notes and
+// real Halo2 proofs, in a published demo tree rather than the chain's. The page says so wherever a
+// demo or testnet anchor is used.
 
 const A = DEMO_AUDIENCE.id
 
 export const PRESETS: Preset[] = [
+  { id: 'testnet-valid', label: 'A real Zcash testnet proof', note: 'Holds ≥ 1 TAZ, from a real testnet wallet as of block 4,410,000, valid until 26 Jan 2027.', audience: 'vouch:testnet-demo', file: 'testnet-valid.pof' },
   { id: 'valid', label: 'A valid proof', note: 'Holds ≥ 500 ZEC, made for the demo pool, valid until 1 Jan 2027.', audience: A, file: 'valid.pof' },
   { id: 'tampered', label: 'A tampered proof', note: 'The same proof with one byte of Halo2 evidence flipped, then re-sealed like a forger would.', audience: A, file: 'tampered.pof' },
   { id: 'expired', label: 'An expired proof', note: 'A real proof whose expiry passed on 22 Sep 2026.', audience: A, file: 'expired.pof' },

@@ -89,7 +89,7 @@ export interface VerificationResult {
   verifier: string
 }
 
-export type PresetId = 'valid' | 'tampered' | 'expired' | 'revoked' | 'wrong-audience' | 'forged-claim' | 'extended-expiry' | 'anchor-mismatch' | 'readdressed' | 'threshold-4000' | 'onchain'
+export type PresetId = 'valid' | 'tampered' | 'expired' | 'revoked' | 'wrong-audience' | 'forged-claim' | 'extended-expiry' | 'anchor-mismatch' | 'readdressed' | 'threshold-4000' | 'onchain' | 'testnet-valid'
 
 export interface Preset {
   id: PresetId
