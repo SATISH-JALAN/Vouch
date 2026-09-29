@@ -1,0 +1,9 @@
+[
+  {
+    "network": "testnet",
+    "height": 4410000,
+    "blockHash": "0004894af6f7ccb01ce586669d621664e6b5ad6afd52e90ac3ff711d14901b36",
+    "ncRoot": "dc487630542d8caaf91237b99f1da076ee73c34cff5e35c5e5ace9428b3be827",
+    "nfRoot": "322fcff2c72d6acb0d0ac1bfa5f5bbf18964f375837058ccc56adc79982a3721"
+  }
+]

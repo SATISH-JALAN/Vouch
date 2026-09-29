@@ -1,0 +1,27 @@
+{
+  "audience": "vouch:testnet-demo",
+  "evaluatedAt": 1790708867,
+  "expected": {
+    "testnet-valid": {
+      "verdict": "Valid",
+      "audience": "vouch:testnet-demo",
+      "network": "testnet"
+    },
+    "testnet-tampered": {
+      "verdict": "ProofInvalid",
+      "audience": "vouch:testnet-demo"
+    },
+    "testnet-forged-claim": {
+      "verdict": "ProofInvalid",
+      "audience": "vouch:testnet-demo"
+    },
+    "testnet-readdressed": {
+      "verdict": "ProofInvalid",
+      "audience": "otc-desk:someone-else"
+    },
+    "testnet-wrong-audience": {
+      "verdict": "WrongAudience",
+      "audience": "otc-desk:someone-else"
+    }
+  }
+}
