@@ -245,6 +245,13 @@ export function refusedByChain(err: unknown): boolean {
   return /simulation failed|custom program error|InstructionError|instruction \d+|already in use|signature verification|precompile/i.test(e.message ?? '')
 }
 
+/** Sent, but its fate is unknown: the confirmation timed out or the blockhash expired while waiting.
+ *  It may have landed, so it must not be reported (or refunded) as refused. */
+export function unconfirmed(err: unknown): boolean {
+  const e = err as { name?: string; message?: string }
+  return /TransactionExpired/.test(e.name ?? '') || /not confirmed in|block ?height exceeded|has expired/i.test(e.message ?? '')
+}
+
 /** Turn a failed send into the program error a person can read. Never carries the RPC URL. */
 export function explain(err: unknown): string {
   const e = err as { message?: string; logs?: string[]; transactionLogs?: string[] }

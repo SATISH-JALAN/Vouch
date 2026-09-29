@@ -76,7 +76,15 @@ function busyOn(el: HTMLElement) {
     .to(parts, { opacity: 0, duration: 0.15, ease: EASE.leave }, 0)
     .set(el.querySelector('.btn-spin'), { opacity: 1 }, D.sm * 0.6)
   if (ring) {
-    const loop = gsap.timeline({ repeat: -1 })
+    // a button unmounted while busy never gets its aria-busy cleared: the loop ends itself instead
+    const loop = gsap.timeline({
+      repeat: -1,
+      onRepeat: () => {
+        if (el.isConnected) return
+        tl.kill()
+        spins.delete(el)
+      },
+    })
     loop.fromTo(ring, { drawSVG: '0% 0%' }, { drawSVG: '0% 100%', duration: 0.7, ease: 'power2.inOut' })
       .to(ring, { drawSVG: '100% 100%', duration: 0.7, ease: 'power2.inOut' })
     tl.add(loop, D.sm * 0.6)

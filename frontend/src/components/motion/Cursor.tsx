@@ -56,10 +56,16 @@ export function Cursor() {
     const pos = { x: -100, y: -100 }
     let state: State = 'dot'
     let lensEl: HTMLElement | null = null
+    // the element the current state was set for (any state, not only the lens): a probe that finds
+    // the same state on the same element changes nothing
+    let stateEl: HTMLElement | null = null
+    let stateText = ''
     const last = { dx: '', rx: '', ro: '', lx: '', ly: '', scroll: -1, probe: 0 }
 
     const setState = (next: State, el: HTMLElement | null, text: string) => {
-      if (next === state && el === lensEl) return
+      if (next === state && el === stateEl && text === stateText) return
+      stateEl = el
+      stateText = text
       if (lensEl && lensEl !== el) lensEl.classList.remove('is-lens')
       lensEl = next === 'lens' ? el : null
       lensEl?.classList.add('is-lens')

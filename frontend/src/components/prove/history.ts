@@ -56,12 +56,15 @@ export async function revoke(secret: string): Promise<{ ok: boolean; message: st
   }
 }
 
-export async function revokedSecrets(): Promise<Set<string>> {
+/** The published revocation secrets, or null when the list could not be read: an unreadable list
+ *  must not pass for "nothing revoked" (the route answers 503 when its store is down). */
+export async function revokedSecrets(): Promise<Set<string> | null> {
   try {
     const r = await fetch('/api/revocations', { cache: 'no-store', signal: AbortSignal.timeout(12_000) })
     const body = (await r.json()) as { secrets?: unknown }
-    return new Set(Array.isArray(body.secrets) ? (body.secrets as string[]) : [])
+    if (!r.ok || !Array.isArray(body.secrets)) return null
+    return new Set(body.secrets as string[])
   } catch {
-    return new Set()
+    return null
   }
 }

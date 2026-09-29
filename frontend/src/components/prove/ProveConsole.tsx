@@ -86,10 +86,11 @@ function Console({ r }: { r: string | null }) {
   }, [proof])
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [revoked, setRevoked] = useState<Set<string>>(new Set())
+  const [listDown, setListDown] = useState(false)
 
   useEffect(() => {
     setHistory(readHistory())
-    void revokedSecrets().then(setRevoked)
+    void revokedSecrets().then((s) => (s ? setRevoked(s) : setListDown(true)))
     void serviceStatus().then((s) => {
       setStatus(s)
       if (!s.demoProver) setPath('wallet')
@@ -162,7 +163,7 @@ function Console({ r }: { r: string | null }) {
     }
   }
 
-  const historyPanel = <History entries={history} revoked={revoked} durable={status?.durable} setEntries={setHistory} setRevoked={setRevoked} />
+  const historyPanel = <History entries={history} revoked={revoked} listDown={listDown} durable={status?.durable} setEntries={setHistory} setRevoked={setRevoked} />
 
   if (!request) {
     return (
@@ -390,12 +391,15 @@ function Handover({ b64, audience, result }: { b64: string; audience: string; re
 function History({
   entries,
   revoked,
+  listDown,
   durable,
   setEntries,
   setRevoked,
 }: {
   entries: HistoryEntry[]
   revoked: Set<string>
+  /** The public revocation list could not be read: only this browser's own revocations are known. */
+  listDown?: boolean
   durable?: boolean
   setEntries: Dispatch<SetStateAction<HistoryEntry[]>>
   setRevoked: Dispatch<SetStateAction<Set<string>>>
@@ -459,6 +463,11 @@ function History({
           ))}
       </div>
       {message && <p className="t-data-sm mb-3 text-ink-2" role="status">{message}</p>}
+      {listDown && entries.length > 0 && (
+        <p className="t-data-sm mb-3 text-invalid" role="status">
+          The public revocation list could not be read, so a proof revoked from another device may still show as live here.
+        </p>
+      )}
       {entries.length === 0 ? (
         <p className="t-data text-ink-3">No proofs made in this browser yet. Proofs from the CLI are listed by `pof-prove history`.</p>
       ) : (

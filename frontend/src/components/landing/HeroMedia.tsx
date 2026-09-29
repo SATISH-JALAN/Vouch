@@ -47,7 +47,7 @@ export function HeroMedia() {
       <div data-iris-plate="" className="absolute inset-0">
         <picture>
           <source media="(min-width: 768px)" srcSet={wide} sizes="100vw" />
-          <img {...portrait} alt={ALT} className="h-full w-full object-cover object-[50%_30%] md:object-[50%_40%]" />
+          <img {...portrait} fetchPriority="high" alt={ALT} className="h-full w-full object-cover object-[50%_30%] md:object-[50%_40%]" />
         </picture>
         <Detail art={HERO_WIDE} className="hidden md:block" />
         <Detail art={HERO_PORTRAIT} className="md:hidden" />

@@ -100,7 +100,7 @@ export function VerifierConsole() {
     loadVerifier()
       .then((m) => {
         setReady('ready')
-        setVersion(m.version())
+        setVersion(m.version)
       })
       .catch((e: unknown) => {
         setReady('failed')

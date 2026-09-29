@@ -69,6 +69,11 @@ export async function setMembers(key: string): Promise<string[]> {
   return (await readFile()).sets[key] ?? []
 }
 
+export async function setHas(key: string, member: string): Promise<boolean> {
+  if (durable) return (await redis<number>('SISMEMBER', `vouch:${key}`, member)) === 1
+  return ((await readFile()).sets[key] ?? []).includes(member)
+}
+
 export async function setSize(key: string): Promise<number> {
   if (durable) return redis<number>('SCARD', `vouch:${key}`)
   return (await readFile()).sets[key]?.length ?? 0
@@ -115,39 +120,36 @@ export async function rateLimit(key: string, max: number, windowMs: number): Pro
 }
 
 /**
- * A spending budget: `overBudget` only reads the window's count, `spend` adds one. Used for
- * things that cost the relayer SOL, so only transactions that actually landed are counted
- * (a refused one never reaches the chain and costs nothing). Shared through Redis when it is
- * configured, else per instance, like `rateLimit`.
+ * A spending budget for things that cost the relayer SOL. `reserve` takes one unit *before* the
+ * spending it guards (an atomic INCR, backed out when that crosses the cap), so parallel requests
+ * cannot all pass a check and then all spend. It returns a `release` for a unit that turned out not
+ * to be spent (a transaction the chain refused), or null when the budget is used up. Shared through
+ * Redis when it is configured, else per instance, like `rateLimit`.
  */
-export async function overBudget(key: string, max: number, windowMs: number): Promise<boolean> {
-  if (durable) {
-    try {
-      const n = await redis<string | null>('GET', `vouch:budget:${key}:${Math.floor(Date.now() / windowMs)}`)
-      return Number(n ?? 0) >= max
-    } catch {
-      /* fall through to the per-instance count */
-    }
-  }
-  const h = spent.get(key)
-  return !!h && h.reset >= Date.now() && h.n >= max
-}
-
-export async function spend(key: string, windowMs: number): Promise<void> {
+export async function reserve(key: string, max: number, windowMs: number): Promise<(() => Promise<void>) | null> {
   if (durable) {
     const k = `vouch:budget:${key}:${Math.floor(Date.now() / windowMs)}`
     try {
       const n = await redis<number>('INCR', k)
       if (n === 1) await redis('EXPIRE', k, Math.ceil(windowMs / 1000))
+      const back = async () => void (await redis('DECR', k).catch(() => {}))
+      if (n > max) {
+        await back()
+        return null
+      }
+      return back
     } catch {
-      /* counted per instance below as well */
+      /* fall through to the per-instance count */
     }
   }
   const now = Date.now()
   if (spent.size > MAX_TRACKED) for (const [k, h] of spent) if (h.reset < now) spent.delete(k)
-  const h = spent.get(key)
-  if (!h || h.reset < now) spent.set(key, { n: 1, reset: now + windowMs })
-  else h.n++
+  let h = spent.get(key)
+  if (!h || h.reset < now) spent.set(key, (h = { n: 0, reset: now + windowMs }))
+  if (h.n >= max) return null
+  h.n++
+  const mine = h
+  return async () => void (mine.n = Math.max(0, mine.n - 1))
 }
 const spent = new Map<string, { n: number; reset: number }>()
 

@@ -66,9 +66,14 @@ export function RequestBuilder() {
   const { request, errors, roundUp, zat } = useBuilt(id)
   // the field keeps what is typed; the store gets a clamped number, so clearing "7" to type "30" works
   const [expiryText, setExpiryText] = useState(String(s.expiryDays))
-  // the summary sentence updates on a commit (blur, Enter, a unit or a round-up), never per keystroke
+  // the summary sentence updates on a commit (blur, Enter, a pause, a unit or a round-up), never per keystroke
   const [commit, setCommit] = useState(0)
   const bump = () => setCommit((c) => c + 1)
+  // …or once typing pauses, so the sentence never disagrees for long with the link below it
+  useEffect(() => {
+    const t = setTimeout(bump, 700)
+    return () => clearTimeout(t)
+  }, [s.amount])
   useEffect(() => setExpiryText(String(s.expiryDays)), [s.expiryDays])
   const commitExpiry = () => {
     const n = Number(expiryText)
