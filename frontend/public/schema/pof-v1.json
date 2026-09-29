@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "/schema/pof-v1.json",
+  "title": "Vouch verification result, format v1",
+  "description": "What pof-verify returns for one .pof file: the WASM verify() result, `pof-verify check --json`, and the attestor's /v1/verify response. `envelope` is the JSON projection of the proof itself; hex strings are lowercase, amounts are zatoshi, times are unix seconds.",
+  "type": "object",
+  "required": ["verdict", "checks", "envelope", "sizeBytes", "checksum", "anchor", "now", "verifier"],
+  "additionalProperties": false,
+  "properties": {
+    "verdict": { "$ref": "#/$defs/verdict" },
+    "checks": {
+      "description": "The six checks, cheapest first. A check after the first failure is not-run.",
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": { "$ref": "#/$defs/check" }
+    },
+    "envelope": {
+      "description": "The decoded proof, or null when the file did not parse.",
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/envelope" }]
+    },
+    "sizeBytes": { "type": "integer", "minimum": 0 },
+    "checksum": {
+      "description": "blake2b-256 of the body, when the file got that far.",
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/hex32" }]
+    },
+    "anchor": {
+      "description": "The published anchor record the proof matched, if any.",
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/anchorRecord" }]
+    },
+    "now": { "description": "The time the verdict was evaluated at.", "$ref": "#/$defs/time" },
+    "verifier": { "description": "Name and version of the verifier, e.g. \"pof-verify 0.1.0\".", "type": "string", "pattern": "^pof-verify " }
+  },
+  "$defs": {
+    "hex16": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "hex32": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "hex64": { "type": "string", "pattern": "^[0-9a-f]{128}$" },
+    "time": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "zatoshi": { "type": "integer", "minimum": 0, "maximum": 2100000000000000 },
+    "height": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+    "claim": {
+      "description": "The one statement a proof asserts. v1 provers make HoldsAtLeast, in whole 0.125 ZEC units (12,500,000 zatoshi); the other kinds are reserved.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "zatoshi"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "HoldsAtLeast" }, "zatoshi": { "$ref": "#/$defs/zatoshi" } }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "zatoshi"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "HoldsExactly" }, "zatoshi": { "$ref": "#/$defs/zatoshi" } }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "txid", "zatoshi"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "ReceivedPayment" }, "txid": { "$ref": "#/$defs/hex32" }, "zatoshi": { "$ref": "#/$defs/zatoshi" } }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "zatoshi", "fromHeight"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "ReceivedAtLeastSince" }, "zatoshi": { "$ref": "#/$defs/zatoshi" }, "fromHeight": { "$ref": "#/$defs/height" } }
+        }
+      ]
+    },
+    "verdict": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "claim", "anchorHeight"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "Valid" }, "claim": { "$ref": "#/$defs/claim" }, "anchorHeight": { "$ref": "#/$defs/height" } }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "at"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "Expired" }, "at": { "$ref": "#/$defs/time" } }
+        },
+        { "type": "object", "required": ["kind"], "additionalProperties": false, "properties": { "kind": { "const": "Revoked" } } },
+        { "type": "object", "required": ["kind"], "additionalProperties": false, "properties": { "kind": { "const": "WrongAudience" } } },
+        { "type": "object", "required": ["kind"], "additionalProperties": false, "properties": { "kind": { "const": "AnchorNotFound" } } },
+        {
+          "type": "object",
+          "required": ["kind", "detail"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "ProofInvalid" }, "detail": { "type": "string" } }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "reason"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "Malformed" }, "reason": { "type": "string" } }
+        }
+      ]
+    },
+    "check": {
+      "type": "object",
+      "required": ["id", "label", "status", "detail"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "enum": ["format", "expiry", "revocation", "audience", "anchor", "proof"] },
+        "label": { "type": "string" },
+        "status": { "enum": ["pass", "fail", "not-run"] },
+        "detail": { "type": "string" }
+      }
+    },
+    "anchor": {
+      "description": "The block the proof is as of, and the two roots it was proved against.",
+      "type": "object",
+      "required": ["height", "ncRoot", "nfRoot"],
+      "additionalProperties": false,
+      "properties": {
+        "height": { "$ref": "#/$defs/height" },
+        "ncRoot": { "description": "Ironwood note-commitment tree root.", "$ref": "#/$defs/hex32" },
+        "nfRoot": { "description": "Spent-nullifier indexed Merkle tree root.", "$ref": "#/$defs/hex32" }
+      }
+    },
+    "anchorRecord": {
+      "description": "An entry of the published anchor table (/api/anchors). blockHash is null for the demo ledger.",
+      "type": "object",
+      "required": ["network", "height", "blockHash", "ncRoot", "nfRoot"],
+      "additionalProperties": false,
+      "properties": {
+        "network": { "description": "mainnet, testnet or demo.", "type": "string" },
+        "height": { "$ref": "#/$defs/height" },
+        "blockHash": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/hex32" }] },
+        "ncRoot": { "$ref": "#/$defs/hex32" },
+        "nfRoot": { "$ref": "#/$defs/hex32" }
+      }
+    },
+    "envelope": {
+      "description": "The JSON projection of a .pof file. The version comes from the file header; everything else is the body.",
+      "type": "object",
+      "required": ["version", "claim", "audience", "binding", "anchor", "issuedAt", "expiresAt", "revocation", "evidence"],
+      "additionalProperties": false,
+      "properties": {
+        "version": { "const": 1 },
+        "claim": { "$ref": "#/$defs/claim" },
+        "audience": { "description": "blake2b-256 of \"pof-audience:\" + the verifier's identifier, trimmed and lowercased. Never the name.", "$ref": "#/$defs/hex32" },
+        "binding": { "description": "32 bytes the proof is bound to (a Solana pubkey for on-chain audiences), all zero when unbound.", "$ref": "#/$defs/hex32" },
+        "anchor": { "$ref": "#/$defs/anchor" },
+        "issuedAt": { "$ref": "#/$defs/time" },
+        "expiresAt": { "description": "Exclusive: at this second the proof is already expired.", "$ref": "#/$defs/time" },
+        "revocation": { "description": "The proof id: the first 16 bytes of blake2b(secret). Publishing the secret revokes it.", "$ref": "#/$defs/hex16" },
+        "evidence": {
+          "type": "object",
+          "required": ["publicInputs", "proof", "signature"],
+          "additionalProperties": false,
+          "properties": {
+            "publicInputs": { "description": "Public inputs the verifier cannot derive (the rest it derives from the envelope).", "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/hex32" } },
+            "proof": { "description": "Halo2 proof bytes, at most 16 KiB.", "type": "string", "pattern": "^([0-9a-f]{2}){0,16384}$" },
+            "signature": { "description": "RedPallas spend-authorisation signature.", "$ref": "#/$defs/hex64" }
+          }
+        }
+      }
+    }
+  }
+}
