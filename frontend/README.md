@@ -20,17 +20,17 @@ pnpm e2e              # the full path through this site's API (needs the stack: 
 | `/verify` | Drop a `.pof` file and it verifies in the browser (WASM), against the anchor table and revocation list. Nothing is uploaded. |
 | `/request` | Build a proof request link: claim, threshold, audience, expiry, and optional Solana binding. |
 | `/prove` | Answer a request: the CLI command for your own wallet, or the demo holder. It keeps a local history and lets you revoke. |
-| `/demo` | Proof → attestation → `pof-gate` receipt → `pof-credit` line on Solana, with the breakers (replay, another wallet, a tampered proof). |
+| `/demo` | Proof → attestation → `pof-gate` receipt → `pof-credit` line on Solana, then a draw on it, with the breakers (replay, another wallet, a tampered proof). |
 | `/docs` | Format, integration, proving, trust model, attestor protocol, FAQ. |
 
 ## What runs where
 
-- **In the browser:** `pof-verify` compiled to WASM (`public/wasm`, built by `../scripts/build-wasm.sh`), loaded on the first verification. Warm-up takes about 0.3 s, and a verification about 100 ms. The TypeScript codec in `src/lib/pof` only parses the file, for display. Verdicts always come from the WASM.
+- **In the browser:** `pof-verify` compiled to WASM (`public/wasm`, built by `../scripts/build-wasm.sh`), run in a module worker (`public/wasm/worker.js`, hand-written) so it never blocks the page. Warm-up takes about 0.3 s, and a verification about 100 ms. The result's JSON Schema is `public/schema/pof-v1.json`. The TypeScript codec in `src/lib/pof` only parses the file, for display. Verdicts always come from the WASM.
 - **API routes** (`src/app/api`):
   - `anchors`: the trusted anchor table (`src/data/anchors.json`).
   - `revocations`: the public revocation list (GET; POST `{secret}` to revoke).
   - `attest`, `demo-prove`: proxies to `pof-attest`.
-  - `relay`: builds and pays for the demo's Solana transactions.
+  - `relay`: builds and pays for the demo's Solana transactions (submit, open a line, draw).
   - `status`: which of these are configured.
   - `stats`: the verification counter.
 - **Labels, never guesses:** `/api/status` decides whether a surface says LIVE or SIMULATED. Without an attestor or Solana configured, `/demo` runs a simulation and labels it as one.

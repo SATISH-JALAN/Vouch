@@ -11,7 +11,7 @@
 # ~5 devnet SOL (two programs ≈ 3.2 SOL of rent, plus setup): https://faucet.solana.com
 # Safe to rerun: the programs are rebuilt and upgraded in place, and setup reuses the kept dUSDC mint
 # (keys/mint.json) and its pool.
-# Needs: solana CLI, anchor, node 22.18+ (runs .ts directly), pnpm, curl.
+# Needs: solana CLI, anchor, node 22.6+ (runs .ts directly; the flag below covers 22.6–22.17), pnpm, curl.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
@@ -54,7 +54,7 @@ solana transfer "$(solana-keygen pubkey "$KEYS/relayer.json")" 0.5 --allow-unfun
 echo "· pof-gate allowlist, dUSDC mint and the credit pool"
 cd frontend
 [ -d node_modules ] || pnpm install --frozen-lockfile
-OUT=$(SOLANA_RPC_URL=$URL ADMIN_KEYPAIR=$ADMIN ATTESTORS=$ATTESTORS MINT_KEYPAIR=$KEYS/mint.json node --no-warnings scripts/solana-setup.ts)
+OUT=$(SOLANA_RPC_URL=$URL ADMIN_KEYPAIR=$ADMIN ATTESTORS=$ATTESTORS MINT_KEYPAIR=$KEYS/mint.json node --experimental-strip-types --no-warnings scripts/solana-setup.ts)
 
 # The public env goes to stdout. The three demo keypairs are secrets: they go only into a file under
 # the gitignored keys/, owner-only, and are never printed (terminal scrollback and CI logs are kept).

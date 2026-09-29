@@ -14,7 +14,7 @@ Built for the Colosseum Crypto World's Fair, Zcash track.
 | Verifier | One Rust implementation, compiled natively (CLI, attestor) and to WASM (the site). All three agree on every test vector, and CI checks it. |
 | Anchors | `nc_root` and `nf_root` rebuilt from lightwalletd compact blocks. The mainnet anchor at height 3,493,000 and the testnet anchor at 4,410,000 both match lightwalletd's own tree root. |
 | Prover | CLI: seed → trial-decrypt your Ironwood notes → proof. The key never leaves the process, and a test checks that the prover links no network client. |
-| On Solana | `pof-gate` (Ed25519 attestations, k-of-n, per-proof receipts bound to the holder's wallet) and `pof-credit` (opens a credit line from a receipt). 18 LiteSVM tests: replay, stranger wallet, forged signer, foreign offsets, k-of-n and more. |
+| On Solana | `pof-gate` (Ed25519 attestations, k-of-n, per-proof receipts bound to the holder's wallet) and `pof-credit` (opens a credit line from a receipt, then pays out draws up to its limit). 18 LiteSVM tests: replay, stranger wallet, forged signer, foreign offsets, k-of-n and more. |
 | Demo | The site's demo holder proves live against a **demo ledger**: a synthetic tree with real keys, real notes and real proofs, labelled `demo` wherever it appears. Beside it, `fixtures/proofs/testnet-valid.pof` is a real proof from a real **Zcash testnet** wallet (holds ≥ 1 TAZ, anchored at block 4,410,000), one click away on `/verify`. TAZ has no monetary value, and the verifier says so. |
 
 ## How it works
@@ -67,8 +67,10 @@ The whole stack (validator with both programs, attestor, demo holder, site in LI
 ```bash
 (cd backend/solana && anchor build)
 ./scripts/dev-stack.sh                       # open http://localhost:3000/demo
-SITE=http://localhost:3000 node scripts/e2e.mjs   # 18 end-to-end checks, in another shell
+SITE=http://localhost:3000 node scripts/e2e.mjs   # 20 end-to-end checks, in another shell
 ```
+
+The CLIs (`pof-prove`, `pof-verify`, `pof-anchor`) for Linux, macOS and Windows are on the [releases page](https://github.com/SATISH-JALAN/Vouch/releases/latest), built by [.github/workflows/release.yml](.github/workflows/release.yml) from each `v*` tag. Or build them from `backend/` as below.
 
 Prove with your own wallet on mainnet:
 
@@ -103,7 +105,7 @@ Verifiers label a testnet anchor as such: a real proof over real testnet notes, 
 | `cargo test --release -p pof-zk --features prove --test roundtrip -- --ignored` | Real proofs: threshold round trip and every tampering case |
 | `cargo test --release -p pof-prove --test wallet -- --ignored` | Seed → note discovery → proof → `Valid` |
 | `cargo test -p pof-solana-tests` (in `backend/solana/`) | The programs against LiteSVM, including the attacks |
-| `pnpm test:fixtures` · `pnpm test:wasm` (in `frontend/`) | TypeScript codec ≡ Rust encoder; the committed WASM the site serves ≡ native verdicts |
+| `pnpm test:fixtures` · `pnpm test:wasm` (in `frontend/`) | TypeScript codec ≡ Rust encoder; the committed WASM the site serves ≡ native verdicts, and every result matches [/schema/pof-v1.json](frontend/public/schema/pof-v1.json) |
 | `pnpm e2e` | The full path through the site's API, with every breaker |
 
 CI runs all of these except `pnpm e2e`, which needs a running stack ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
