@@ -346,7 +346,7 @@ function ResultDetail({ result, text, audience }: Checked) {
           <h3 id="reveal-h" className="t-eyebrow mb-4 text-ink-3">
             WHAT THIS PROOF DISCLOSED
           </h3>
-          <RevealTable {...revealRows(result.envelope, result.checks)} />
+          <RevealTable {...revealRows(result.envelope, result.checks, result.anchor?.network)} />
         </section>
       )}
 

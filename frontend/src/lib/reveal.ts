@@ -17,8 +17,8 @@ export const NEVER = [
 const AUDIENCE = { pass: 'you — the audience hash matches', fail: 'someone else', 'not-run': 'not checked: an earlier check failed' } as const
 
 /** What a verifier learns from one proof file, and what it can never learn. Only checks that ran are reported as facts. */
-export function revealRows(env: Envelope, checks: Check[]) {
-  const p = claimParts(env.claim)
+export function revealRows(env: Envelope, checks: Check[], network?: string) {
+  const p = claimParts(env.claim, network)
   const established = checks.every((c) => c.status === 'pass')
   const audience = checks.find((c) => c.id === 'audience')?.status ?? 'not-run'
   return {

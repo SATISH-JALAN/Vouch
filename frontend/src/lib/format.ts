@@ -46,16 +46,18 @@ export function truncateMiddle(s: string, head = 5, tail = 4): string {
   return s.length <= head + tail + 1 ? s : `${s.slice(0, head)}…${s.slice(-tail)}`
 }
 
-/** The claim as a sentence fragment, split so the disclosed value can be styled on its own. */
-export function claimParts(c: Claim): { before: string; value: string; after: string } {
+/** The claim as a sentence fragment, split so the disclosed value can be styled on its own.
+ *  On a testnet anchor the amounts are TAZ, which have no monetary value. */
+export function claimParts(c: Claim, network?: string): { before: string; value: string; after: string } {
+  const unit = network === 'testnet' ? 'TAZ' : 'ZEC'
   switch (c.kind) {
     case 'HoldsAtLeast':
-      return { before: 'Holds at least', value: `${formatZecExact(c.zatoshi)} ZEC`, after: '' }
+      return { before: 'Holds at least', value: `${formatZecExact(c.zatoshi)} ${unit}`, after: '' }
     case 'HoldsExactly':
-      return { before: 'Holds exactly', value: `${formatZec(c.zatoshi)} ZEC`, after: '' }
+      return { before: 'Holds exactly', value: `${formatZec(c.zatoshi)} ${unit}`, after: '' }
     case 'ReceivedPayment':
-      return { before: 'Received', value: `${formatZec(c.zatoshi)} ZEC`, after: `in transaction ${truncateMiddle(c.txid, 6, 6)}` }
+      return { before: 'Received', value: `${formatZec(c.zatoshi)} ${unit}`, after: `in transaction ${truncateMiddle(c.txid, 6, 6)}` }
     case 'ReceivedAtLeastSince':
-      return { before: 'Received at least', value: `${formatZecExact(c.zatoshi)} ZEC`, after: `since block ${formatInt(c.fromHeight)}` }
+      return { before: 'Received at least', value: `${formatZecExact(c.zatoshi)} ${unit}`, after: `since block ${formatInt(c.fromHeight)}` }
   }
 }

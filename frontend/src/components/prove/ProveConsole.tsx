@@ -100,7 +100,7 @@ function Console({ r }: { r: string | null }) {
     (b64: string, result: VerificationResult, secret?: string) => {
       const env = result.envelope
       if (!env || !request) return
-      const p = claimParts(env.claim)
+      const p = claimParts(env.claim, result.anchor?.network)
       setHistory(
         upsert({
           id: env.revocation.slice(0, 16),

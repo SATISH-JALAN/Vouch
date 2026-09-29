@@ -97,7 +97,8 @@ fn run(cmd: Cmd) -> anyhow::Result<i32> {
         let line = match &r.verdict {
             Verdict::Valid { claim, anchor_height } => {
                 let network = r.anchor.as_ref().map_or("?", |a| a.network.as_str());
-                format!("Valid · {} ZEC at least · anchor {anchor_height} ({network})", zec(claim.zatoshi()))
+                let unit = if network == "testnet" { "TAZ" } else { "ZEC" };
+                format!("Valid · {} {unit} at least · anchor {anchor_height} ({network})", zec(claim.zatoshi()))
             }
             Verdict::Expired { at } => format!("Expired · at unix {at}"),
             Verdict::Revoked => "Invalid · revoked by the holder".into(),

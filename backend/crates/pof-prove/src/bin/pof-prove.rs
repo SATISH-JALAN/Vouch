@@ -197,7 +197,7 @@ fn record(mut history: History, out: &Path, env: &Envelope, rs: &[u8; 32], req: 
     let tag = hex::encode(env.revocation);
     history.entries.push(Entry {
         id: tag[..16].to_string(),
-        claim: format!("Holds at least {} ZEC", zec(req.zatoshi)),
+        claim: format!("Holds at least {} {}", zec(req.zatoshi), if network == "testnet" { "TAZ" } else { "ZEC" }),
         audience: req.audience.clone(),
         network: network.to_string(),
         anchor_height: env.anchor.height,

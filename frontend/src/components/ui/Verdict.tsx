@@ -134,7 +134,7 @@ export function Verdict({ result, audienceId, className }: { result: Verificatio
 
           {v.kind === 'Valid' && env ? (
             <div className="mt-5 space-y-2">
-              <ClaimLine claim={v.claim} anchorHeight={v.anchorHeight} />
+              <ClaimLine claim={v.claim} anchorHeight={v.anchorHeight} network={result.anchor?.network} />
               <p className="t-data text-ink-2">
                 Made for you · valid until {formatDate(env.expiresAt)} · {passed} of {result.checks.length} checks passed
                 {result.anchor?.network === 'demo' && ' · demo anchor'}
@@ -162,7 +162,7 @@ export function Verdict({ result, audienceId, className }: { result: Verificatio
 
           {env && v.kind !== 'Valid' && (
             <p className="t-data-sm mt-4 text-ink-3">
-              It claimed: <ClaimText env={env} /> — not established.
+              It claimed: <ClaimText env={env} network={result.anchor?.network} /> — not established.
             </p>
           )}
 
@@ -193,8 +193,8 @@ export function Verdict({ result, audienceId, className }: { result: Verificatio
 }
 
 /** Plain and unsealed: this fact has not been established. */
-function ClaimText({ env }: { env: NonNullable<VerificationResult['envelope']> }) {
-  const p = claimParts(env.claim)
+function ClaimText({ env, network }: { env: NonNullable<VerificationResult['envelope']>; network?: string }) {
+  const p = claimParts(env.claim, network)
   return (
     <span className="text-ink-2">
       {p.before.toLowerCase()} {p.value}

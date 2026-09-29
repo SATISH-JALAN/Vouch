@@ -8,8 +8,8 @@ import { cx } from './primitives'
  * A disclosed value carries a bar ([data-claim-bar]) that rests lifted; a verdict lowers and lifts it
  * as the fact is disclosed.
  */
-export function ClaimLine({ claim, anchorHeight, disclosed = true, className }: { claim: Claim; anchorHeight?: number; disclosed?: boolean; className?: string }) {
-  const p = claimParts(claim)
+export function ClaimLine({ claim, anchorHeight, network, disclosed = true, className }: { claim: Claim; anchorHeight?: number; network?: string; disclosed?: boolean; className?: string }) {
+  const p = claimParts(claim, network)
   return (
     <p className={cx('t-body text-ink', className)}>
       {p.before}{' '}
@@ -22,7 +22,7 @@ export function ClaimLine({ claim, anchorHeight, disclosed = true, className }: 
       {p.after && ` ${p.after}`}
       {anchorHeight !== undefined && (
         <>
-          {' '}as of block <span className="font-mono">{formatInt(anchorHeight)}</span>
+          {' '}as of {network === 'testnet' ? 'testnet ' : ''}block <span className="font-mono">{formatInt(anchorHeight)}</span>
         </>
       )}
       .
