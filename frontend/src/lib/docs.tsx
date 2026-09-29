@@ -20,8 +20,9 @@ export interface Doc {
   sections: DocSection[]
 }
 
+// tabIndex: a block wider than the column scrolls sideways, and a keyboard has to be able to scroll it too
 const Code = ({ children }: { children: string }) => (
-  <pre className="t-data my-6 overflow-x-auto rounded-chip border border-border bg-bone-2 p-5 text-ink" data-lenis-prevent="">
+  <pre tabIndex={0} className="t-data my-6 overflow-x-auto rounded-chip border border-border bg-bone-2 p-5 text-ink" data-lenis-prevent="">
     {children}
   </pre>
 )
@@ -40,7 +41,7 @@ const A = ({ href, children }: { href: string; children: ReactNode }) =>
   )
 
 const Table = ({ head, rows }: { head: string[]; rows: ReactNode[][] }) => (
-  <div className="my-6 overflow-x-auto">
+  <div tabIndex={0} role="region" aria-label={head.join(', ')} className="my-6 overflow-x-auto">
     <table className="t-data w-full border-collapse text-left">
       <thead>
         <tr className="border-b border-ink">

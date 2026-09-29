@@ -11,7 +11,7 @@
   --color-bone-2: #e9e6dc;
   --color-ink: #1a1d1b;
   --color-ink-2: #5c615d;
-  --color-ink-3: #8e938e;
+  --color-ink-3: #696e69; /* 4.6:1 on bone: the lightest grey small text may use (WCAG AA) */
   --color-rule: #dedacf;
   --color-border: #c9c4b6;
 
@@ -24,6 +24,8 @@
 
   /* the seal — the only saturated colour at rest */
   --color-seal: #c8452f;
+  /* the seal as small text on the shielded ground, lifted to 4.8:1 (AA) */
+  --color-seal-on-dark: #d6533b;
   --color-seal-bg: #f7e9e5;
 
   /* verdicts — only inside a <Verdict> or a status chip */

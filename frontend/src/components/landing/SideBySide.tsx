@@ -154,7 +154,7 @@ export function SideBySide({ hasImage = false }: { hasImage?: boolean }) {
               <p className="t-title px-5 pt-6 sm:px-8">You send a Vouch proof.</p>
               <p className="t-data-sm px-5 pb-4 pt-1 text-on-dark-2 sm:px-8">One line opens. The rest never will.</p>
               <div className="border-t border-rule-dark px-5 py-[9px] sm:px-8">
-                <p className="t-data text-seal">Holds ≥ 500 ZEC at block {formatInt(ANCHOR.height)}</p>
+                <p className="t-data text-seal-on-dark">Holds ≥ 500 ZEC at block {formatInt(ANCHOR.height)}</p>
               </div>
               <dl className="pb-4">
                 {WITHHELD.map((r) => (
