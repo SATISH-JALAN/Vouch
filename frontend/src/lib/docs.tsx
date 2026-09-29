@@ -102,7 +102,7 @@ const format: Doc = {
         <>
           <p>
             Binary, then base64url (RFC 4648 §5, no padding) wherever it travels as text or inside a URL. The extension is <C>.pof</C>; a holding
-            proof is 11,886 bytes.
+            proof is about 11,900 bytes.
           </p>
           <Code>{` magic      "POF1"                 4 bytes   50 4F 46 31
  version    u16, little-endian     2 bytes   01 00
@@ -281,14 +281,41 @@ signature  = RedPallas SpendAuth over message, under rk`}</Code>
       ),
     },
     {
+      id: 'json',
+      title: 'As JSON',
+      body: (
+        <>
+          <p>
+            Every verifier returns the same JSON for a file: the WASM <C>verify()</C>, <C>pof-verify check --json</C> and the attestor’s{' '}
+            <C>/v1/verify</C>. It holds the verdict, the six checks in order, the matched anchor record, and <C>envelope</C>, the JSON projection
+            of the proof itself (hex in lowercase, amounts in zatoshi, times in unix seconds). Its JSON Schema is published at{' '}
+            <A href="/schema/pof-v1.json">/schema/pof-v1.json</A>, and CI checks every test vector’s result against it.
+          </p>
+          <Code>{`{ "verdict":  { "kind": "Valid", "claim": { "kind": "HoldsAtLeast", "zatoshi": 100000000 }, "anchorHeight": 4410000 },
+  "checks":   [ { "id": "format", "label": "…", "status": "pass", "detail": "…" }, … ],
+  "envelope": { "version": 1, "claim": { … }, "audience": "412a96…", "binding": "0000…", "anchor": { … },
+                "issuedAt": 1790622467, "expiresAt": 1800990467, "revocation": "704960c1…", "evidence": { … } },
+  "sizeBytes": 11884, "checksum": "c82489…", "anchor": { "network": "testnet", "height": 4410000, … },
+  "now": 1790693805, "verifier": "pof-verify 0.1.0" }`}</Code>
+        </>
+      ),
+    },
+    {
       id: 'example',
       title: 'Test vectors',
       body: (
-        <p>
-          Every preset on <A href="/verify">/verify</A> is a real proof written by <C>pof-prove demo fixtures</C> and committed in{' '}
-          <A href={`${REPO}/tree/main/fixtures`}>fixtures/</A>, together with the verdict each must produce. The native verifier, the WASM
-          verifier and the TypeScript codec are all checked against that one list in CI. Their audience is the hash of <C>{DEMO_AUDIENCE.id}</C>.
-        </p>
+        <>
+          <p>
+            Every preset on <A href="/verify">/verify</A> is a real proof committed in <A href={`${REPO}/tree/main/fixtures`}>fixtures/</A>,
+            together with the verdict each must produce. The native verifier, the WASM verifier and the TypeScript codec are all checked against
+            that one list in CI.
+          </p>
+          <p>
+            The first, <C>testnet-valid.pof</C>, was made by <C>pof-prove prove</C> from a real Zcash testnet wallet: at least 1 TAZ, as of testnet
+            block 4,410,000, for the audience <C>vouch:testnet-demo</C>. Its tampered, forged and re-addressed copies sit beside it. The rest were
+            written by <C>pof-prove demo fixtures</C> against the demo ledger, for the audience <C>{DEMO_AUDIENCE.id}</C>.
+          </p>
+        </>
       ),
     },
   ],
