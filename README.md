@@ -12,10 +12,10 @@ Built for the Colosseum Crypto World's Fair, Zcash track.
 | --- | --- |
 | Threshold circuit | The Zcash shielded-voting delegation circuit (Halo2, no trusted setup), extended with one public input so it proves `sum ≥ threshold` without revealing the sum. Real proofs, with tampering tests. |
 | Verifier | One Rust implementation, compiled natively (CLI, attestor) and to WASM (the site). All three agree on every test vector, and CI checks it. |
-| Anchors | `nc_root` and `nf_root` rebuilt from lightwalletd compact blocks. The mainnet anchor at height 3,493,000 matches lightwalletd's own tree root. |
+| Anchors | `nc_root` and `nf_root` rebuilt from lightwalletd compact blocks. The mainnet anchor at height 3,493,000 and the testnet anchor at 4,410,000 both match lightwalletd's own tree root. |
 | Prover | CLI: seed → trial-decrypt your Ironwood notes → proof. The key never leaves the process, and a test checks that the prover links no network client. |
-| On Solana | `pof-gate` (Ed25519 attestations, k-of-n, per-proof receipts bound to the holder's wallet) and `pof-credit` (opens a credit line from a receipt). 11 LiteSVM tests: replay, stranger wallet, forged signer, foreign offsets, k-of-n and more. |
-| Demo | The site's demo holder proves live against a **demo ledger**: a synthetic tree with real keys, real notes and real proofs, labelled `demo` wherever it appears. A mainnet proof needs a funded Ironwood wallet (see the status section below). |
+| On Solana | `pof-gate` (Ed25519 attestations, k-of-n, per-proof receipts bound to the holder's wallet) and `pof-credit` (opens a credit line from a receipt). 18 LiteSVM tests: replay, stranger wallet, forged signer, foreign offsets, k-of-n and more. |
+| Demo | The site's demo holder proves live against a **demo ledger**: a synthetic tree with real keys, real notes and real proofs, labelled `demo` wherever it appears. Beside it, `fixtures/proofs/testnet-valid.pof` is a real proof from a real **Zcash testnet** wallet (holds ≥ 1 TAZ, anchored at block 4,410,000), one click away on `/verify`. TAZ has no monetary value, and the verifier says so. |
 
 ## How it works
 

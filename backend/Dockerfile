@@ -15,7 +15,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /src/backend/target/release/pof-attest /usr/local/bin/pof-attest
-# Anchors the attestor trusts (mainnet + demo), the demo ledger, and the demo revocation list
+# Anchors the attestor trusts (mainnet + testnet + demo), the demo ledger, and the demo revocation list
 COPY frontend/src/data/anchors.json /app/anchors.json
 COPY fixtures/demo-world.json /app/demo-world.json
 COPY fixtures/revocations.demo.json /app/revocations.demo.json
