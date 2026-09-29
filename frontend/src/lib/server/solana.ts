@@ -134,6 +134,22 @@ export function openLineIx(pool: PublicKey, borrower: PublicKey, payer: PublicKe
   })
 }
 
+/** The borrower signs; the pool's vault pays `amount` (base units) into the borrower's token account. */
+export function drawIx(pool: PublicKey, vault: PublicKey, line: PublicKey, borrower: PublicKey, borrowerToken: PublicKey, amount: bigint) {
+  return new TransactionInstruction({
+    programId: CREDIT_ID,
+    keys: [
+      { pubkey: pool, isSigner: false, isWritable: false },
+      { pubkey: line, isSigner: false, isWritable: true },
+      { pubkey: borrower, isSigner: true, isWritable: false },
+      { pubkey: vault, isSigner: false, isWritable: true },
+      { pubkey: borrowerToken, isSigner: false, isWritable: true },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([disc(creditIdl, 'draw'), u64(amount)]),
+  })
+}
+
 // ── accounts ──────────────────────────────────────────────────────────────
 
 /** ClaimReceipt.subject: the first field after the discriminator. */

@@ -72,6 +72,14 @@ export async function submit(att: Attestation, opts: { tamperAttestation?: boole
   return { ok: true, tx }
 }
 
+/** The vault pays 1,000 into the borrower's account; the line's limit caps the total. */
+export async function draw(line: CreditLine): Promise<{ ok: true; amount: string; drawn: string } | { ok: false; message: string; failedAt: string }> {
+  const n = (s: string) => Number(s.replace(/[^0-9.]/g, ''))
+  const drawn = n(line.drawn) + 1_000
+  if (drawn > n(line.limit)) return { ok: false, failedAt: 'pof-credit · draw', message: 'Simulated: the draw would exceed the line’s limit, so pof-credit refuses.' }
+  return { ok: true, amount: '1,000.00 USDC', drawn: `${drawn.toLocaleString('en-US', { minimumFractionDigits: 2 })} USDC` }
+}
+
 export async function openLine(tx: GateTransaction): Promise<CreditLine> {
   return {
     account: toBase58(blake2b(utf8(`line:${tx.receipt}`))),

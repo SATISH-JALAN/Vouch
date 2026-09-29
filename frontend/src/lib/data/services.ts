@@ -67,6 +67,7 @@ export async function demoProve(request: ProofRequest, bindSolana?: string): Pro
 export type RelayAction =
   | { action: 'submit'; attestation: { message: string; signature: string; attestor: string }; tamper?: boolean; wallet?: 'borrower' | 'stranger' }
   | { action: 'open-line'; receipt: string; wallet?: 'borrower' | 'stranger' }
+  | { action: 'draw'; line: string }
   | { action: 'borrower' }
 
 export async function relaySubmit(a: Extract<RelayAction, { action: 'submit' }>): Promise<SubmitOutcome> {
@@ -78,6 +79,12 @@ export async function relaySubmit(a: Extract<RelayAction, { action: 'submit' }>)
 export async function relayOpenLine(a: Extract<RelayAction, { action: 'open-line' }>): Promise<{ ok: true; line: CreditLine } | { ok: false; message: string; failedAt: string }> {
   const r = await post<{ line?: CreditLine; error?: string; failedAt?: string }>('/api/relay', a, 45_000)
   if (r.status === 200 && r.body?.line) return { ok: true, line: r.body.line }
+  return { ok: false, failedAt: r.body?.failedAt ?? 'relayer', message: r.body?.error ?? r.error ?? `HTTP ${r.status}` }
+}
+
+export async function relayDraw(a: Extract<RelayAction, { action: 'draw' }>): Promise<{ ok: true; amount: string; drawn: string; explorer?: string } | { ok: false; message: string; failedAt: string }> {
+  const r = await post<{ amount?: string; drawn?: string; explorer?: string; error?: string; failedAt?: string }>('/api/relay', a, 45_000)
+  if (r.status === 200 && r.body?.drawn && r.body.amount) return { ok: true, amount: r.body.amount, drawn: r.body.drawn, explorer: r.body.explorer }
   return { ok: false, failedAt: r.body?.failedAt ?? 'relayer', message: r.body?.error ?? r.error ?? `HTTP ${r.status}` }
 }
 

@@ -2,9 +2,10 @@
 // here, so a visitor needs no wallet. It holds the borrower key the demo proof is bound to,
 // and a "stranger" key for the wrong-wallet run. Everything it does is on a public explorer.
 import { Keypair, PublicKey, type Connection } from '@solana/web3.js'
+import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from '@solana/spl-token'
 import { formatUnits } from '@/lib/server/units'
 import {
-  connection, decodePool, ed25519Ix, explain, refusedByChain, explorer, keypairFrom, linePda, openLineIx, receiptPda, receiptSubject, send, submitIx, GATE_ID, CREDIT_ID,
+  connection, decodePool, drawIx, ed25519Ix, explain, refusedByChain, explorer, keypairFrom, linePda, openLineIx, receiptPda, receiptSubject, send, submitIx, GATE_ID, CREDIT_ID,
 } from '@/lib/server/solana'
 import { readJson } from '@/lib/server/http'
 import { clientKey, durable, overBudget, rateLimit, spend } from '@/lib/server/store'
@@ -17,6 +18,10 @@ type Body =
   | { action: 'borrower' }
   | { action: 'submit'; attestation: { message: string; signature: string; attestor: string }; tamper?: boolean }
   | { action: 'open-line'; receipt: string; wallet?: 'borrower' | 'stranger' }
+  | { action: 'draw'; line: string }
+
+/** What one draw pays out: 1,000 dUSDC (6 decimals). */
+const DRAW = 1_000_000_000n
 
 // Every transaction that lands costs the relayer a fee plus rent (a ClaimReceipt, or a
 // CreditLine), and anyone can ask for one. Refused transactions fail in preflight and cost
@@ -191,6 +196,44 @@ export async function POST(req: Request) {
       const why = explain(err)
       if (!refusedByChain(err)) return Response.json({ error: `The transaction did not reach Solana: ${why}`, failedAt: 'relayer' }, { status: 502 })
       return Response.json({ error: why, failedAt: `pof-credit · open_line${body.wallet === 'stranger' ? ' (another wallet)' : ''}` }, { status: 422 })
+    }
+  }
+  if (body.action === 'draw') {
+    if (typeof body.line !== 'string') return Response.json({ error: 'draw needs a credit line address' }, { status: 400 })
+    let line: PublicKey
+    try {
+      line = new PublicKey(body.line)
+    } catch {
+      return Response.json({ error: 'draw needs a credit line address (base58)' }, { status: 400 })
+    }
+    const pool = new PublicKey(process.env.POF_POOL!)
+    try {
+      // Only the demo's own lines: CreditLine is [disc 8 | pool 32 | borrower 32 | limit 8 | drawn 8 | …]
+      const acc = await conn.getAccountInfo(line)
+      if (!acc || !acc.owner.equals(CREDIT_ID) || acc.data.length < 88) {
+        return Response.json({ error: 'There is no pof-credit line at this address. Open one first.', failedAt: 'pof-credit · draw' }, { status: 422 })
+      }
+      if (!acc.data.subarray(8, 40).equals(pool.toBuffer()) || !acc.data.subarray(40, 72).equals(borrower.publicKey.toBuffer())) {
+        return Response.json({ error: 'This relayer only draws on the demo borrower’s lines in the demo pool.', failedAt: 'relayer' }, { status: 422 })
+      }
+      const over = await budgetLeft(client)
+      if (over) return over
+      const p = await poolTerms(conn, pool)
+      // the borrower's dUSDC account, created on the first draw at the relayer's cost; the borrower only signs
+      const to = getAssociatedTokenAddressSync(p.mint, borrower.publicKey)
+      const sig = await send(
+        conn,
+        [createAssociatedTokenAccountIdempotentInstruction(relayer.publicKey, to, borrower.publicKey, p.mint), drawIx(pool, p.vault, line, borrower.publicKey, to, DRAW)],
+        [relayer, borrower],
+      )
+      await spent(client)
+      const after = await conn.getAccountInfo(line).catch(() => null)
+      const drawn = after && after.data.length >= 88 ? after.data.readBigUInt64LE(80) : acc.data.readBigUInt64LE(80) + DRAW
+      return Response.json({ amount: `${formatUnits(DRAW, 6)} dUSDC`, drawn: `${formatUnits(drawn, 6)} dUSDC`, explorer: explorer('tx', sig) })
+    } catch (err) {
+      const why = explain(err)
+      if (!refusedByChain(err)) return Response.json({ error: `The transaction did not reach Solana: ${why}`, failedAt: 'relayer' }, { status: 502 })
+      return Response.json({ error: /0x1776|OverLimit|exceeds/i.test(why) ? `pof-credit refused: the draw would exceed the line’s limit. (${why})` : why, failedAt: 'pof-credit · draw' }, { status: 422 })
     }
   }
   return Response.json({ error: 'unknown action' }, { status: 400 })

@@ -152,6 +152,8 @@ export interface CreditLine {
   openedAgainst: string
   requiredZatoshi: number
   explorer?: string
+  /** The last draw's transaction, once the borrower has drawn. */
+  drawExplorer?: string
 }
 
 export type AttestOutcome =

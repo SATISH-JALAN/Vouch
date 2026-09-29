@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import type { Attestation, CreditLine, GateTransaction, ProofRequest, ServiceStatus, VerificationResult } from '@/lib/data/types'
 import { DEMO_AUDIENCE, DEMO_THRESHOLD_ZAT, INSTRUCTIONS_SYSVAR } from '@/lib/data/chain'
 import { fetchPreset, verify } from '@/lib/data/verifier'
-import { attest as liveAttest, demoProve, relayBorrower, relayOpenLine, relaySubmit, serviceStatus } from '@/lib/data/services'
+import { attest as liveAttest, demoProve, relayBorrower, relayDraw, relayOpenLine, relaySubmit, serviceStatus } from '@/lib/data/services'
 import * as sim from '@/lib/data/simulated'
 import { formatDate, formatInt, formatZecExact } from '@/lib/format'
 import { fromBase64Url, fromHex, toBase58, toBase64Url } from '@/lib/pof/bytes'
@@ -180,6 +180,22 @@ export function GateDemo() {
     setBusy(false)
   }
 
+  const drawOnLine = async () => {
+    if (!s.line) return
+    setBusy(true)
+    const out = mode === 'live' ? await relayDraw({ action: 'draw', line: s.line.account }) : await sim.draw(s.line)
+    setS(
+      out.ok
+        ? {
+            ...s,
+            line: { ...s.line, drawn: out.drawn, drawExplorer: 'explorer' in out ? (out.explorer as string | undefined) : undefined },
+            extra: { ok: true, title: `Drew ${out.amount} · pof-credit · draw`, body: `The pool’s vault paid the borrower’s account; ${out.drawn} of ${s.line.limit} is now drawn. The borrower signed, the relayer paid the fee.` },
+          }
+        : { ...s, extra: { ok: out.failedAt.startsWith('pof-credit'), title: `Draw refused · ${out.failedAt}`, body: out.message } },
+    )
+    setBusy(false)
+  }
+
   // Screen readers hear each step land; failures are already announced by their role="alert".
   const running = ORDER.find((id) => s.status[id] === 'running')
   const doneCount = ORDER.filter((id) => s.status[id] === 'done').length
@@ -322,13 +338,16 @@ export function GateDemo() {
                   ['line', s.line.explorer ? <a key="l" className="link-draw text-ink" href={s.line.explorer} target="_blank" rel="noreferrer">{s.line.account.slice(0, 12)}… ↗</a> : <Hash key="l" value={s.line.account} head={8} tail={6} label="CreditLine account" />],
                   ['pool', <Hash key="p" value={s.line.pool} head={8} tail={6} label="pool account" />],
                   ['limit', s.line.limit],
-                  ['drawn', s.line.drawn],
+                  ['drawn', s.line.drawExplorer ? <a key="d" className="link-draw text-ink" href={s.line.drawExplorer} target="_blank" rel="noreferrer">{s.line.drawn} ↗</a> : s.line.drawn],
                   ['against', <Hash key="a" value={s.line.openedAgainst} head={8} tail={6} label="receipt" />],
                   ['required', `${formatInt(s.line.requiredZatoshi)} zat`],
                 ]}
               />
               <p className="t-data-sm mt-5 text-ink-3">The ZEC never left Zcash. The pool never learned the balance, the notes, or any address.</p>
               <div className="mt-6 flex flex-wrap gap-2">
+                <button type="button" className="btn btn-sm btn-primary" onClick={() => void drawOnLine()} disabled={busy}>
+                  <BtnLabel>{`Draw 1,000 ${mode === 'live' ? 'dUSDC' : 'USDC'}`}</BtnLabel>
+                </button>
                 <button type="button" className="btn btn-sm btn-secondary" onClick={() => void replay()} disabled={busy}>
                   <BtnLabel>Submit the same attestation again</BtnLabel>
                 </button>

@@ -92,6 +92,10 @@ const l1 = await post('/api/relay', { action: 'open-line', receipt })
 check('pof-credit opens the line', l1.status === 200, l1.body?.line?.limit ?? l1.body?.error)
 const after = borrower ? await lamports(borrower) : null
 check("the borrower's balance is untouched (the relayer pays)", before !== null && after === before, `${before} → ${after} lamports via ${RPC}`)
+const d1 = await post('/api/relay', { action: 'draw', line: l1.body?.line?.account })
+check('the borrower draws 1,000 dUSDC on it', d1.status === 200 && /^1,000(\.0+)? dUSDC$/.test(d1.body?.drawn ?? ''), d1.body?.drawn ?? d1.body?.error)
+const afterDraw = borrower ? await lamports(borrower) : null
+check('the draw costs the borrower nothing either', afterDraw === before, `${before} → ${afterDraw} lamports`)
 
 // breakers
 const r2 = await post('/api/relay', { action: 'submit', attestation: att })
