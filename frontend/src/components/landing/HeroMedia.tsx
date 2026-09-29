@@ -4,6 +4,7 @@ import { getImageProps } from 'next/image'
 import { useEffect, useRef, useState } from 'react'
 import { motionOK } from '@/lib/motion'
 import { HERO_PORTRAIT, HERO_WIDE, type HeroArt } from '@/lib/heroArt'
+import { useLoops } from '@/lib/store'
 
 const ALT = 'Oil painting: in a gaslit iron-and-glass hall, a notary raises a single card sealed in red wax while a crowd watches. Everything else in the hall is covered.'
 
@@ -12,7 +13,8 @@ type Clip = 'hero' | 'hero-mobile'
 /**
  * The painting is the base layer and the LCP: art-directed (portrait below 768px), prioritised.
  * The video loop is added client-side only when motion is allowed and data saver is off,
- * fades in once it is actually playing, and pauses whenever the hero is off-screen.
+ * fades in once it is actually playing, and pauses whenever the hero is off-screen or the visitor
+ * paused the landing's loops (the ticker's button).
  * The iris (useIris) drives the data-iris-* parts: it clips the frame, lays the plate out by hand
  * and pushes in on the seal, and holds the video (data-held) while the still does the work.
  */
@@ -20,6 +22,7 @@ export function HeroMedia() {
   const [clip, setClip] = useState<Clip | null>(null)
   const [playing, setPlaying] = useState(false)
   const video = useRef<HTMLVideoElement>(null)
+  const loopsPaused = useLoops((s) => s.loopsPaused)
 
   const common = { alt: ALT, sizes: '100vw', priority: true, quality: 80 }
   const { props: { srcSet: wide } } = getImageProps({ ...common, src: '/visuals/hero.webp', width: 1536, height: 1024 })
@@ -34,10 +37,10 @@ export function HeroMedia() {
   useEffect(() => {
     const el = video.current
     if (!el) return
-    const io = new IntersectionObserver(([e]) => (e?.isIntersecting && !el.dataset.held ? el.play().catch(() => {}) : el.pause()), { threshold: 0.05 })
+    const io = new IntersectionObserver(([e]) => (e?.isIntersecting && !el.dataset.held && !loopsPaused ? el.play().catch(() => {}) : el.pause()), { threshold: 0.05 })
     io.observe(el)
     return () => io.disconnect()
-  }, [clip])
+  }, [clip, loopsPaused])
 
   return (
     <div data-iris="" className="absolute inset-0 overflow-hidden">
@@ -55,7 +58,7 @@ export function HeroMedia() {
           ref={video}
           key={clip}
           className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-700 ${playing ? 'opacity-100' : 'opacity-0'}`}
-          autoPlay
+          autoPlay={!loopsPaused}
           muted
           loop
           playsInline

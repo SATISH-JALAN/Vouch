@@ -6,6 +6,7 @@ import { EASE, IRIS, MQ } from '@/lib/motion'
 import { onMeaningfulResize } from '@/lib/resize'
 import { HERO_PORTRAIT, HERO_WIDE, HERO_WIDE_MQ } from '@/lib/heroArt'
 import { registerSlot } from '@/lib/through'
+import { useLoops } from '@/lib/store'
 
 /**
  * The iris handoff (MOTION.md §5.1). The whole scene narrows to one sealed fact.
@@ -185,6 +186,8 @@ function build(section: HTMLElement, desktop: boolean) {
 
     // the registered loop freezes where it is as the pin starts (it is the picture, so nothing changes)
     // and plays again at the top. An unregistered one hands over to the laid-out still instead
+    // a visitor who paused the landing's loops (the ticker's button) keeps the film paused
+    const play = (v: HTMLVideoElement) => void (useLoops.getState().loopsPaused || v.play().catch(() => {}))
     const hold = (on: boolean) => {
       const v = clip
       if (!v) return
@@ -192,13 +195,13 @@ function build(section: HTMLElement, desktop: boolean) {
       else delete v.dataset.held
       if (video) {
         if (on) v.pause()
-        else void v.play().catch(() => {})
+        else play(v)
         return
       }
       gsap.set(v, { transition: 'none' })
       if (on) gsap.to(v, { opacity: 0, duration: IRIS.videoFade, ease: 'none', overwrite: true, onComplete: () => v.pause() })
       else {
-        void v.play().catch(() => {})
+        play(v)
         gsap.to(v, { opacity: 1, duration: IRIS.videoFade, ease: 'none', overwrite: true })
       }
     }
