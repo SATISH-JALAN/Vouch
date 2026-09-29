@@ -33,7 +33,7 @@ export function Problem() {
             </div>
           </div>
           <figure className="col-span-12 mx-auto mt-12 w-full max-w-[440px] lg:col-span-5 lg:col-start-8 lg:mt-0 lg:max-w-none">
-            <div data-unveil="">
+            <div data-unveil="" className="overflow-hidden">
             <Image
               src="/visuals/ledger.webp"
               width={1122}
