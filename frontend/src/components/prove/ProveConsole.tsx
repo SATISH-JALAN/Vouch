@@ -27,10 +27,13 @@ import { readHistory, revoke, revokedSecrets, upsert, writeHistory, type History
 
 const SAMPLE: ProofRequest = { v: 1, claim: 'HoldsAtLeast', zatoshi: '50000000000', audience: DEMO_AUDIENCE.id, expiryDays: 7 }
 
+// Release archives hold pof-prove, pof-verify and pof-anchor, with a .sha256 beside each (.github/workflows/release.yml).
+const LATEST = 'https://github.com/SATISH-JALAN/Vouch/releases/latest/download'
 const INSTALL: Record<string, string> = {
-  'macOS / Linux': 'cargo install --git https://github.com/SATISH-JALAN/Vouch pof-prove --locked',
-  Windows: 'cargo install --git https://github.com/SATISH-JALAN/Vouch pof-prove --locked   # PowerShell, Rust 1.91+',
-  'From source': 'git clone https://github.com/SATISH-JALAN/Vouch && cd Vouch/backend && cargo build --release -p pof-prove',
+  macOS: `curl -fL ${LATEST}/vouch-macos-arm64.tar.gz | tar xz && export PATH="$PWD/vouch-macos-arm64:$PATH"   # Apple silicon`,
+  Linux: `curl -fL ${LATEST}/vouch-linux-x86_64.tar.gz | tar xz && export PATH="$PWD/vouch-linux-x86_64:$PATH"`,
+  Windows: `iwr ${LATEST}/vouch-windows-x86_64.zip -OutFile vouch.zip; Expand-Archive vouch.zip .; $env:Path = "$PWD\\vouch-windows-x86_64;$env:Path"   # PowerShell`,
+  'From source': 'cargo install --git https://github.com/SATISH-JALAN/Vouch pof-prove --locked   # Rust 1.91+',
 }
 
 const isBase58Key = (s: string) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(s.trim())
@@ -60,7 +63,7 @@ function Console({ r }: { r: string | null }) {
   const request = decoded?.ok ? decoded.request : null
   const [status, setStatus] = useState<ServiceStatus | null>(null)
   const [path, setPath] = useState<'wallet' | 'demo'>('demo')
-  const [os, setOs] = useState('macOS / Linux')
+  const [os, setOs] = useState('macOS')
   const [solana, setSolana] = useState('')
   const [busy, setBusy] = useState<'proving' | 'checking' | null>(null)
   const [dragging, setDragging] = useState(false)

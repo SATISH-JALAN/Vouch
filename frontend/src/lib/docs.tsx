@@ -432,8 +432,13 @@ const prove: Doc = {
       title: '1 · Install the prover',
       body: (
         <>
-          <p>Rust 1.91 or newer. The prover is one binary; nothing else is installed.</p>
-          <Code>{`cargo install --git ${REPO} pof-prove --locked
+          <p>
+            The prover is one binary; nothing else is installed. Each <A href={`${REPO}/releases/latest`}>release</A> has pof-prove,
+            pof-verify and pof-anchor built for macOS (Apple silicon), Linux and Windows, with a SHA-256 beside every archive.
+          </p>
+          <Code>{`curl -fL ${REPO}/releases/latest/download/vouch-linux-x86_64.tar.gz | tar xz   # or vouch-macos-arm64.tar.gz, vouch-windows-x86_64.zip
+# or with Rust 1.91 or newer
+cargo install --git ${REPO} pof-prove --locked
 # or from source
 git clone ${REPO} && cd Vouch/backend && cargo build --release -p pof-prove`}</Code>
         </>
