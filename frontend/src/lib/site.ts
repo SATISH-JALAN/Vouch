@@ -15,7 +15,7 @@ export const SUBMISSION = {
 } as const
 
 export const LINKS = {
-  /** TODO: set when the repository is public. */
+  /** The public repository. */
   repo: 'https://github.com/SATISH-JALAN/Vouch' as string | null,
   /** TODO: set when the Zcash forum thread is posted. */
   forum: null as string | null,
