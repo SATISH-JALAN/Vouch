@@ -11,10 +11,14 @@ Built for the Colosseum Crypto World's Fair, Zcash track.
 | Piece | Status |
 | --- | --- |
 | Threshold circuit | The Zcash shielded-voting delegation circuit (Halo2, no trusted setup), extended with one public input so it proves `sum ≥ threshold` without revealing the sum. Real proofs, with tampering tests. |
+| Unmoved since block H | Format v2 takes the note-commitment root from an earlier block than the spent set, so a proof says the notes were in the chain at H and have not moved since. No circuit change. A real testnet proof: ≥ 1 TAZ, unmoved since 4,410,000, as of 4,459,000. |
+| Scopes and reuse | In v2 the circuit's nullifier domain comes from (circuit, audience, period), so the same notes give the same tags to the same verifier in one period: it sees reuse; nobody else can link anything. Reserves batches (`.pofb`) sum several proofs with no note counted twice, checked natively with one batched Halo2 verification. |
+| Exit certificates | Circuit 2 (a second, separate verifying key; circuit 1's is unchanged): a reveal flag and the notes' real nullifiers, so a rail can match a deposit to exactly the certified notes. Real on testnet: a certificate, then a deposit `ff0a2488…` that spends exactly those notes → `Matched`. |
 | Verifier | One Rust implementation, compiled natively (CLI, attestor) and to WASM (the site). All three agree on every test vector, and CI checks it. |
 | Anchors | `nc_root` and `nf_root` rebuilt from lightwalletd compact blocks. The mainnet anchor at height 3,493,000 and the testnet anchor at 4,410,000 both match lightwalletd's own tree root. |
 | Prover | CLI: seed → trial-decrypt your Ironwood notes → proof. The key never leaves the process, and a test checks that the prover links no network client. |
-| On Solana | `pof-gate` (Ed25519 attestations, k-of-n, per-proof receipts bound to the holder's wallet) and `pof-credit` (opens a credit line from a receipt, then pays out draws up to its limit). 18 LiteSVM tests: replay, stranger wallet, forged signer, foreign offsets, k-of-n and more. |
+| On Solana | `pof-gate` (Ed25519 attestations, k-of-n, per-proof receipts bound to the holder's wallet), `pof-credit` (opens a credit line from a receipt and pays out draws up to its limit, only while the line's latest proof is fresh; `refresh_line` takes a new proof at an anchor no older than the last) and `pof-reserve` (an attested reserves batch becomes a feed; its demo token mints only within the proven total and only while the feed is fresh). 26 LiteSVM tests: replay, stranger wallet, forged signer, foreign offsets, k-of-n, stale proofs, refreshes that go back in time, minting past the reserves and more. |
+| Rail API | The attestor also serves rails: `/v1/certificates` (verify under the rail's period and policy against its reuse registry), `/v1/certificates/{id}/match` (read the deposit's nullifiers from lightwalletd), `/v1/batch`, HMAC-signed webhooks. The site's `/rail` console runs the same checks in the browser. |
 | Demo | The site's demo holder proves live against a **demo ledger**: a synthetic tree with real keys, real notes and real proofs, labelled `demo` wherever it appears. Beside it, `fixtures/proofs/testnet-valid.pof` is a real proof from a real **Zcash testnet** wallet (holds ≥ 1 TAZ, anchored at block 4,410,000), one click away on `/verify`. TAZ has no monetary value, and the verifier says so. |
 
 ## How it works
@@ -112,7 +116,7 @@ CI runs all of these except `pnpm e2e`, which needs a running stack ([.github/wo
 
 ## Deploy
 
-- **Attestor:** [backend/Dockerfile](backend/Dockerfile) and [backend/fly.toml](backend/fly.toml) (commands are in the file header).
+- **Attestor:** [render.yaml](render.yaml) deploys it on Render's free plan from [backend/Dockerfile.render](backend/Dockerfile.render): the verifier, attestations and the rail API, without the demo holder (a proof takes about two minutes on 0.1 CPU). The site's `/demo` then hands out real single-use proofs made ahead of time (`pof-prove demo pool`). [backend/Dockerfile](backend/Dockerfile) plus [backend/fly.toml](backend/fly.toml) is the full build with the demo holder, for a host with more CPU.
 - **Programs:** `POF_ATTEST_URL=https://<attestor> [ATTESTORS=<b58,…>] ./scripts/deploy-devnet.sh`. It rebuilds and deploys under the fixed program ids (the admin keeps the upgrade authority, which `initialize` requires), copies the IDLs, allowlists the attestor (read from `/v1/pubkey` when `ATTESTORS` is unset), creates the pool with the mint kept in `backend/solana/keys/mint.json`, and prints the site's environment.
 - **Site:** Vercel, root `frontend/`, with the variables in [frontend/.env.example](frontend/.env.example).
 

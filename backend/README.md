@@ -78,7 +78,7 @@ POF_ATTEST_KEY=<32-byte hex> SOLANA_RPC_URL=http://127.0.0.1:8899 cargo run --re
 | `POF_DEMO_WORLD` | — | Enables the demo holder |
 | `PORT` | `8787` | |
 
-Container: `docker build -f backend/Dockerfile -t pof-attest .` from the repo root. `fly.toml` holds the Fly.io deploy.
+Container: `docker build -f backend/Dockerfile -t pof-attest .` from the repo root. `fly.toml` holds the Fly.io deploy. For Render's free plan, `Dockerfile.render` builds it without the demo holder (`--no-default-features --features rail`) and `render.yaml` at the repo root deploys it.
 
 ## Solana
 
