@@ -463,7 +463,7 @@ textarea.field { height: auto; padding-block: 12px; resize: vertical; }
 }
 .is-lens .lens-veil { opacity: 1; }
 
-/* ── preloader — shown only on first visit, decided before paint ────────── */
+/* ── preloader — first landing load per session, desktop only; decided before paint */
 
 .preloader { display: none; }
 html.preload .preloader { display: flex; }

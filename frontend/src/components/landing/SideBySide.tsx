@@ -82,7 +82,6 @@ export function SideBySide({ hasImage = false }: { hasImage?: boolean }) {
                       alt="Oil painting: on a lender's desk, an overstuffed portfolio spills every paper its owner has; beside it lies one small card sealed in red wax, and the lender reaches for the card."
                       fill
                       sizes="(min-width: 1024px) 56vw, 100vw"
-                      unoptimized
                       className="object-cover object-[62%_50%]"
                     />
                   </div>

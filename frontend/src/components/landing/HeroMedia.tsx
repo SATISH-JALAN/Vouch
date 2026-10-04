@@ -12,8 +12,9 @@ type Clip = 'hero' | 'hero-mobile'
 
 /**
  * The painting is the base layer and the LCP: art-directed (portrait below 768px), prioritised.
- * The video loop is added client-side only when motion is allowed and data saver is off,
- * fades in once it is actually playing, and pauses whenever the hero is off-screen or the visitor
+ * The video loop is added client-side only when motion is allowed and data saver is off, and only
+ * after the page has loaded, so it never competes with the painting for bandwidth. It fades in once
+ * it is actually playing, and pauses whenever the hero is off-screen or the visitor
  * paused the landing's loops (the ticker's button).
  * The iris (useIris) drives the data-iris-* parts: it clips the frame, lays the plate out by hand
  * and pushes in on the seal, and holds the video (data-held) while the still does the work.
@@ -31,7 +32,10 @@ export function HeroMedia() {
   useEffect(() => {
     const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData
     if (!motionOK() || saveData) return
-    setClip(window.matchMedia('(min-width: 768px)').matches ? 'hero' : 'hero-mobile')
+    const add = () => setClip(window.matchMedia('(min-width: 768px)').matches ? 'hero' : 'hero-mobile')
+    if (document.readyState === 'complete') return add()
+    window.addEventListener('load', add, { once: true })
+    return () => window.removeEventListener('load', add)
   }, [])
 
   useEffect(() => {

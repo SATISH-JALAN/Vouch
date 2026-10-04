@@ -7,7 +7,7 @@ import { useIntro } from '@/lib/store'
 import { Logo } from '@/components/brand/Logo'
 
 /**
- * 12.1 — every load of the landing page (decided before paint by HEAD_SCRIPT).
+ * 12.1 — the first landing load of a session, desktop widths only (decided before paint by HEAD_SCRIPT).
  * The mark draws itself, the wordmark fades up, counter 0→100, then the overlay wipes up
  * over the hero. About 2.6s, and skippable with a click or any key.
  */
@@ -24,7 +24,12 @@ export function Preloader() {
         return
       }
 
-      const finish = () => html.classList.remove('preload')
+      const finish = () => {
+        html.classList.remove('preload')
+        try {
+          sessionStorage.setItem('vouch:intro', '1')
+        } catch {}
+      }
 
       const counter = el.querySelector<HTMLElement>('[data-counter]')!
       const count = { n: 0 }
