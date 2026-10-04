@@ -6,7 +6,7 @@
 
 use std::cell::OnceCell;
 
-use pof_verify::{verify as run, AnchorRecord, Context, ZkVerifier};
+use pof_verify::{verify as run, verify_batch as run_batch, AnchorRecord, Context, Policy, ZkVerifier};
 use wasm_bindgen::prelude::*;
 
 thread_local! {
@@ -27,14 +27,58 @@ pub fn warm() -> Result<(), JsError> {
 }
 
 /// Verify a proof. `bytes` is the binary `.pof` or its base64url text.
-/// `anchors_json`: `[{network,height,ncRoot,nfRoot}]`; `revoked_json`: `["hex secret", …]`.
+/// `anchors_json`: `[{network,height,ncRoot,nfRoot}]`; `revoked_json`: `["hex secret", …]`;
+/// `policy_json` (optional): `{tipHeight?, maxAnchorAge?, dormantSince?, epoch?}`;
+/// `seen_json` (optional): `["hex tag", …]`, the tags already accepted in that epoch.
 /// Returns the JSON projection of `VerificationResult`.
 #[wasm_bindgen]
-pub fn verify(bytes: &[u8], audience: &str, now_sec: u64, anchors_json: &str, revoked_json: &str) -> Result<String, JsError> {
-    let anchors: Vec<AnchorRecord> = serde_json::from_str(anchors_json).map_err(|e| JsError::new(&format!("anchor table: {e}")))?;
-    let revoked: Vec<String> = serde_json::from_str(revoked_json).map_err(|e| JsError::new(&format!("revocation list: {e}")))?;
-    let result = with_zk(|zk| run(bytes, &Context { audience, anchors: &anchors, revoked_secrets: &revoked, now: now_sec, zk })).map_err(|e| JsError::new(&e))?;
+pub fn verify(
+    bytes: &[u8],
+    audience: &str,
+    now_sec: u64,
+    anchors_json: &str,
+    revoked_json: &str,
+    policy_json: Option<String>,
+    seen_json: Option<String>,
+) -> Result<String, JsError> {
+    let (anchors, revoked, policy, seen) = inputs(anchors_json, revoked_json, policy_json, seen_json)?;
+    let result = with_zk(|zk| run(bytes, &Context { audience, anchors: &anchors, revoked_secrets: &revoked, now: now_sec, zk, policy, seen: &seen }))
+        .map_err(|e| JsError::new(&e))?;
     serde_json::to_string(&result).map_err(|e| JsError::new(&e.to_string()))
+}
+
+/// Verify a reserves batch (.pofb bytes or base64url text). Same inputs as `verify`; returns the
+/// JSON projection of `BatchResult`. The browser checks the members' proofs one at a time.
+#[wasm_bindgen(js_name = verifyBatch)]
+pub fn verify_batch(
+    bytes: &[u8],
+    audience: &str,
+    now_sec: u64,
+    anchors_json: &str,
+    revoked_json: &str,
+    policy_json: Option<String>,
+    seen_json: Option<String>,
+) -> Result<String, JsError> {
+    let (anchors, revoked, policy, seen) = inputs(anchors_json, revoked_json, policy_json, seen_json)?;
+    let result = with_zk(|zk| run_batch(bytes, &Context { audience, anchors: &anchors, revoked_secrets: &revoked, now: now_sec, zk, policy, seen: &seen }))
+        .map_err(|e| JsError::new(&e))?;
+    serde_json::to_string(&result).map_err(|e| JsError::new(&e.to_string()))
+}
+
+type Inputs = (Vec<AnchorRecord>, Vec<String>, Policy, Vec<String>);
+
+fn inputs(anchors_json: &str, revoked_json: &str, policy_json: Option<String>, seen_json: Option<String>) -> Result<Inputs, JsError> {
+    let anchors = serde_json::from_str(anchors_json).map_err(|e| JsError::new(&format!("anchor table: {e}")))?;
+    let revoked = serde_json::from_str(revoked_json).map_err(|e| JsError::new(&format!("revocation list: {e}")))?;
+    let policy = match policy_json.as_deref() {
+        Some(p) if !p.trim().is_empty() => serde_json::from_str(p).map_err(|e| JsError::new(&format!("policy: {e}")))?,
+        _ => Policy::default(),
+    };
+    let seen = match seen_json.as_deref() {
+        Some(s) if !s.trim().is_empty() => serde_json::from_str(s).map_err(|e| JsError::new(&format!("seen tags: {e}")))?,
+        _ => vec![],
+    };
+    Ok((anchors, revoked, policy, seen))
 }
 
 #[wasm_bindgen]
