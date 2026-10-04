@@ -6,6 +6,7 @@ import { DEMO_AUDIENCE } from '@/lib/data/chain'
 import { formatZec } from '@/lib/format'
 
 export type Unit = 'ZEC' | 'zat'
+export type RequestKind = 'proof' | 'exit' | 'reserves'
 
 interface RequestState {
   claim: ClaimKind
@@ -16,6 +17,12 @@ interface RequestState {
   /** Days the holder has to respond; 0 = no deadline. */
   respondDays: number
   bindSolana: boolean
+  /** One proof of funds, an exit certificate, or a reserves batch. */
+  kind: RequestKind
+  /** "Unmoved since" block, as typed ('' = not required). */
+  dormantSince: string
+  /** Detect the same coins used twice with you this month (the request then names a period). */
+  detectReuse: boolean
   set: (patch: Partial<Omit<RequestState, 'set' | 'setUnit'>>) => void
   setUnit: (u: Unit) => void
 }
@@ -28,6 +35,9 @@ export const useRequest = create<RequestState>((set, get) => ({
   expiryDays: 7,
   respondDays: 0,
   bindSolana: false,
+  kind: 'proof',
+  dormantSince: '',
+  detectReuse: false,
   set: (patch) => set(patch),
   // switching units converts the value rather than reinterpreting it
   setUnit: (u) => {

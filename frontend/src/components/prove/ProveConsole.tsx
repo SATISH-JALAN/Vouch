@@ -8,7 +8,7 @@ import { decodeRequestDetailed, encodeRequest, cliCommand, demoCliCommand, newRe
 import { verify } from '@/lib/data/verifier'
 import { demoProve, serviceStatus } from '@/lib/data/services'
 import { DEMO_AUDIENCE } from '@/lib/data/chain'
-import { claimParts, formatDate, formatStamp } from '@/lib/format'
+import { claimParts, formatInt, formatDate, formatStamp } from '@/lib/format'
 import { fromBase64Url, toBase64Url } from '@/lib/pof/bytes'
 import { downloadBytes, isPofBinary } from '@/lib/files'
 import { downloadReceipt } from '@/lib/receipt'
@@ -203,18 +203,42 @@ function Console({ r }: { r: string | null }) {
       <section aria-labelledby="review-h" className="rounded-panel border border-ink p-5 sm:p-8">
         <Eyebrow>INCOMING PROOF REQUEST · REVIEW BEFORE ANYTHING IS GENERATED</Eyebrow>
         <h2 id="review-h" className="t-display-m mt-6 max-w-[30ch] text-ink">
-          <span className="font-mono text-[0.72em] [overflow-wrap:anywhere]">{request.audience}</span> asks you to prove you hold at least {p.value}.
+          <span className="font-mono text-[0.72em] [overflow-wrap:anywhere]">{request.audience}</span>{' '}
+          {request.kind === 'reserves'
+            ? `asks you to prove your reserves total at least ${p.value}`
+            : request.kind === 'exit'
+              ? `asks you to certify the at least ${p.value} you are about to send them`
+              : `asks you to prove you hold at least ${p.value}`}
+          {request.dormantSince ? `, in coins unmoved since block ${formatInt(request.dormantSince)}` : ''}.
         </h2>
         <p className="t-small mt-4 text-ink-2">
           Expires {request.expiryDays} {request.expiryDays === 1 ? 'day' : 'days'} after you generate it. You can revoke it before then.
           {request.respondBy && ` They asked for an answer by ${formatDate(request.respondBy)}${overdue ? ' — that date has passed' : ''}.`}
           {request.id && ` Request id ${request.id}.`}
         </p>
+        {request.epoch !== undefined && (
+          <p className="t-small mt-2 text-ink-2">
+            This request names a period ({request.epoch}). If you use the same coins with {request.audience} again in that period, they will
+            see it was the same coins. Nobody else can link the two.
+          </p>
+        )}
+        {request.kind === 'exit' && (
+          <p className="t-small mt-2 text-ink-2">
+            Make this certificate when you are ready to send. It names the coins being sent, so the recipient can match it to the deposit.
+          </p>
+        )}
+        {request.kind === 'reserves' && (
+          <p className="t-small mt-2 text-ink-2">
+            Reserves are proven as a batch of proofs, up to five notes each, from the command line. The total is shown; your exact balance is not.
+          </p>
+        )}
         <RevealTable
           className="mt-8"
           learn={[
-            { label: 'The claim', value: `Holds at least ${p.value}` },
+            { label: 'The claim', value: request.kind === 'reserves' ? `Reserves total at least ${p.value}` : `Holds at least ${p.value}` },
             { label: 'As of', value: 'one finalised block, chosen when you prove' },
+            ...(request.dormantSince ? [{ label: 'Unmoved since', value: `block ${formatInt(request.dormantSince)}: your coins were in the chain then and untouched since` }] : []),
+            ...(request.epoch !== undefined ? [{ label: 'Reuse', value: `visible to them within period ${request.epoch}, to nobody else` }] : []),
             { label: 'Made for', value: request.audience },
             ...(needsBinding ? [{ label: 'Usable by', value: 'only your Solana account, which you name below' }] : []),
             { label: 'Valid for', value: `${request.expiryDays} ${request.expiryDays === 1 ? 'day' : 'days'}` },

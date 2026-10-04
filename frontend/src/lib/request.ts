@@ -10,7 +10,8 @@ const KINDS: ClaimKind[] = ['HoldsAtLeast', 'HoldsExactly', 'ReceivedPayment', '
 export const PROVABLE: ClaimKind[] = ['HoldsAtLeast']
 export const ZAT_PER_UNIT = 12_500_000n
 export const MAX_ZATOSHI = 21_000_000n * 100_000_000n
-const FIELDS = new Set(['v', 'id', 'claim', 'zatoshi', 'audience', 'expiryDays', 'respondBy', 'bind'])
+const FIELDS = new Set(['v', 'id', 'claim', 'zatoshi', 'audience', 'expiryDays', 'respondBy', 'bind', 'kind', 'epoch', 'dormantSince'])
+const REQUEST_KINDS = ['proof', 'exit', 'reserves']
 
 export function newRequestId(): string {
   const b = new Uint8Array(8)
@@ -67,6 +68,13 @@ export function decodeRequestDetailed(s: string): DecodedRequest {
   if (r.id !== undefined && (typeof r.id !== 'string' || !/^[0-9a-f]{16}$/.test(r.id))) return fail('Malformed request id.')
   if (r.respondBy !== undefined && (typeof r.respondBy !== 'number' || !Number.isSafeInteger(r.respondBy) || r.respondBy < 1)) return fail('Malformed response deadline.')
   if (r.bind !== undefined && r.bind !== 'solana') return fail('Unknown binding.')
+  if (r.kind !== undefined && (typeof r.kind !== 'string' || !REQUEST_KINDS.includes(r.kind))) return fail('Unknown request kind.')
+  if (r.epoch !== undefined && (typeof r.epoch !== 'number' || !Number.isSafeInteger(r.epoch) || r.epoch < 0)) return fail('Malformed period.')
+  if (
+    r.dormantSince !== undefined &&
+    (typeof r.dormantSince !== 'number' || !Number.isInteger(r.dormantSince) || r.dormantSince < 1000 || r.dormantSince > 0xffffffff || r.dormantSince % 1000 !== 0)
+  )
+    return fail('The unmoved-since block must be a multiple of 1,000.')
   return { ok: true, request: r as unknown as ProofRequest }
 }
 
@@ -74,11 +82,14 @@ export function decodeRequestDetailed(s: string): DecodedRequest {
 
 /** For holders with their own wallet. Keys never leave their machine. The snapshot path is where `pof-anchor scan` writes by default
  *  (`mainnet-<height>` or `testnet-<height>`); pof-prove takes the network from the snapshot. */
-export function cliCommand(encoded: string, bind?: 'solana') {
-  return `pof-prove prove --request ${encoded} --snapshot target/snapshots/<network>-<height>.vsnp --seed-file ~/.vouch/seed.txt${bind === 'solana' ? ' --bind-solana <your-solana-pubkey>' : ''} --out proof.pof`
+export function cliCommand(encoded: string, bind?: 'solana', kind?: ProofRequest['kind']) {
+  return `pof-prove prove --request ${encoded} --snapshot target/snapshots/<network>-<height>.vsnp --seed-file ~/.vouch/seed.txt${bind === 'solana' ? ' --bind-solana <your-solana-pubkey>' : ''} --out ${outFile(kind)}`
 }
 
 /** The same request answered by the demo holder on the demo ledger. */
-export function demoCliCommand(encoded: string, bind?: 'solana') {
-  return `pof-prove demo prove --world ../fixtures/demo-world.json --request ${encoded}${bind === 'solana' ? ' --bind-solana <your-solana-pubkey>' : ''} --out proof.pof`
+export function demoCliCommand(encoded: string, bind?: 'solana', kind?: ProofRequest['kind']) {
+  return `pof-prove demo prove --world ../fixtures/demo-world.json --request ${encoded}${bind === 'solana' ? ' --bind-solana <your-solana-pubkey>' : ''} --out ${outFile(kind)}`
 }
+
+/** A reserves request is answered with a batch file; anything else with one proof. */
+const outFile = (kind?: ProofRequest['kind']) => (kind === 'reserves' ? 'reserves.pofb' : 'proof.pof')

@@ -11,7 +11,7 @@ import { Hash } from '@/components/ui/Hash'
 import { DropMarch, PickBox, PickCheck } from '@/components/motion/Pick'
 import { BtnLabel } from '@/components/motion/BtnLabel'
 import { KineticValue } from '@/components/motion/KineticValue'
-import { toZatoshi, trimZec, useRequest } from './store'
+import { toZatoshi, trimZec, useRequest, type RequestKind } from './store'
 
 const CLAIMS: { kind: ClaimKind; label: string; hint: string }[] = [
   { kind: 'HoldsAtLeast', label: 'Holds at least', hint: 'Threshold. The balance is never revealed.' },
@@ -19,6 +19,18 @@ const CLAIMS: { kind: ClaimKind; label: string; hint: string }[] = [
   { kind: 'ReceivedAtLeastSince', label: 'Received at least, since', hint: 'Income over a period, as a threshold.' },
   { kind: 'HoldsExactly', label: 'Holds exactly', hint: 'An exact amount. Deliberately not offered: thresholds reveal less.' },
 ]
+
+const KINDS: { kind: RequestKind; label: string; hint: string }[] = [
+  { kind: 'proof', label: 'Proof of funds', hint: 'One proof: they hold at least this much.' },
+  { kind: 'exit', label: 'Exit certificate', hint: 'For coins about to be sent to you.' },
+  { kind: 'reserves', label: 'Reserves', hint: 'A batch summing every note, none twice.' },
+]
+
+/** This month as a period, e.g. 202610: readable, and the same for every request made this month. */
+const thisMonth = () => {
+  const d = new Date()
+  return d.getUTCFullYear() * 100 + d.getUTCMonth() + 1
+}
 
 const EXPIRY = [1, 7, 30]
 const RESPOND = [0, 1, 3, 7]
@@ -39,6 +51,10 @@ function useBuilt(id: string): { request: ProofRequest | null; errors: Record<st
     const audience = audienceProblem(s.audience)
     if (audience) errors.audience = audience
     if (!PROVABLE.includes(s.claim)) errors.claim = 'Not provable yet.'
+    const since = s.dormantSince.trim().replace(/[ ,]/g, '')
+    const dormantSince = since ? Number(since) : undefined
+    if (dormantSince !== undefined && (!Number.isInteger(dormantSince) || dormantSince < 1000 || dormantSince > 0xffffffff || dormantSince % 1000 !== 0))
+      errors.dormantSince = 'A block height that is a multiple of 1,000 (anchors are published every 1,000 blocks).'
     if (Object.keys(errors).length || zat === null) return { request: null, errors, roundUp, zat }
     const request: ProofRequest = {
       v: 1,
@@ -50,6 +66,9 @@ function useBuilt(id: string): { request: ProofRequest | null; errors: Record<st
       // the last second (UTC) of the named day, so "answer by 3 Oct" still accepts an answer on 3 Oct
       ...(s.respondDays ? { respondBy: (Math.floor(Date.now() / 86_400_000) + s.respondDays + 1) * 86_400 - 1 } : {}),
       ...(s.bindSolana ? { bind: 'solana' as const } : {}),
+      ...(s.kind !== 'proof' ? { kind: s.kind } : {}),
+      ...(s.detectReuse || s.kind === 'exit' ? { epoch: thisMonth() } : {}),
+      ...(dormantSince !== undefined ? { dormantSince } : {}),
     }
     return { request, errors, roundUp, zat }
   }, [s, id])
@@ -124,9 +143,32 @@ export function RequestBuilder() {
           </div>
         </fieldset>
 
+        <fieldset>
+          <legend className="t-eyebrow mb-3 text-ink-3">WHAT YOU ASK FOR</legend>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {KINDS.map((k) => (
+              <label
+                key={k.kind}
+                data-on={s.kind === k.kind}
+                className={cx(
+                  'pick cursor-pointer rounded-chip border px-4 py-3 transition-colors duration-200 hover:border-ink has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-[3px] has-[:focus-visible]:outline-seal',
+                  s.kind === k.kind ? 'border-ink' : 'border-border',
+                )}
+              >
+                <input type="radio" name="kind" value={k.kind} checked={s.kind === k.kind} onChange={() => s.set({ kind: k.kind })} className="sr-only" />
+                <span className="flex items-center justify-between gap-2">
+                  <span className="block text-[15px] font-medium">{k.label}</span>
+                  <PickCheck className="h-3.5 w-3.5 shrink-0 text-ink" />
+                </span>
+                <span className="t-small block text-ink-3">{k.hint}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
         <div>
           <label htmlFor="amount" className="t-eyebrow mb-3 block text-ink-3">
-            THRESHOLD
+            {s.kind === 'reserves' ? 'TOTAL AT LEAST' : 'THRESHOLD'}
           </label>
           <div className="flex gap-2">
             <input
@@ -190,6 +232,37 @@ export function RequestBuilder() {
             </p>
           )}
         </Field>
+
+        <Field
+          id="since"
+          label="UNMOVED SINCE · OPTIONAL"
+          error={errors.dormantSince}
+          hint="Require the coins to have been in the chain at this block and untouched after it, e.g. a block before a known incident. It proves when the coins last moved, not where they came from."
+        >
+          <input
+            id="since"
+            inputMode="numeric"
+            className="field t-data"
+            placeholder="block height, e.g. 4,410,000"
+            value={s.dormantSince}
+            onChange={(e) => s.set({ dormantSince: e.target.value })}
+            aria-invalid={!!errors.dormantSince}
+            aria-describedby="since-help"
+            spellCheck={false}
+          />
+        </Field>
+
+        <label className="flex cursor-pointer gap-3 rounded-chip border border-border p-3 transition-colors duration-200 hover:border-ink has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-seal">
+          <input type="checkbox" className="sr-only" checked={s.detectReuse || s.kind === 'exit'} disabled={s.kind === 'exit'} onChange={(e) => s.set({ detectReuse: e.target.checked })} />
+          <PickBox on={s.detectReuse || s.kind === 'exit'} />
+          <span>
+            <span className="block text-[14px] font-medium text-ink">Detect the same coins used twice with you this month</span>
+            <span className="t-data-sm block text-ink-3">
+              The request names this month ({thisMonth()}). Within it the same notes give the same tags, so you see a second use; nobody
+              else can link them. Always on for exit certificates.
+            </span>
+          </span>
+        </label>
 
         <fieldset>
           <legend className="t-eyebrow mb-3 text-ink-3">EXPIRY</legend>
@@ -260,10 +333,18 @@ export function RequestBuilder() {
           {request && link && encoded ? (
             <>
               <p className="t-body text-ink">
-                Asks for proof that the holder holds at least <KineticValue className="font-mono" value={sentence(request).value} commit={commit} />, for{' '}
+                {request.kind === 'reserves'
+                  ? 'Asks for proof that their reserves total at least '
+                  : request.kind === 'exit'
+                    ? 'Asks them to certify the at least '
+                    : 'Asks for proof that the holder holds at least '}
+                <KineticValue className="font-mono" value={sentence(request).value} commit={commit} />
+                {request.kind === 'exit' ? ' they are about to send you' : ''}
+                {request.dormantSince ? `, in coins unmoved since block ${formatInt(request.dormantSince)}` : ''}, for{' '}
                 <span className="font-mono">{request.audience}</span>, valid {request.expiryDays} {request.expiryDays === 1 ? 'day' : 'days'}
                 {request.respondBy ? `, answered by ${formatDate(request.respondBy)}` : ''}
-                {request.bind ? ', bound to their Solana account' : ''}.
+                {request.bind ? ', bound to their Solana account' : ''}
+                {request.epoch ? `, in period ${request.epoch}` : ''}.
               </p>
               <CopyBlock label="LINK" value={link} />
               <div className="mt-3 flex flex-wrap gap-2">
@@ -274,8 +355,8 @@ export function RequestBuilder() {
                   <BtnLabel>New request id</BtnLabel>
                 </button>
               </div>
-              <CopyBlock label="OR, FOR THE CLI" value={cliCommand(encoded, request.bind)} />
-              <CopyBlock label="ON THE DEMO LEDGER" value={demoCliCommand(encoded, request.bind)} />
+              <CopyBlock label="OR, FOR THE CLI" value={cliCommand(encoded, request.bind, request.kind)} />
+              <CopyBlock label="ON THE DEMO LEDGER" value={demoCliCommand(encoded, request.bind, request.kind)} />
               <p className="t-data-sm mt-4 text-ink-3">Request id {id}. It lets you match the proof you receive to the request you sent.</p>
             </>
           ) : (
