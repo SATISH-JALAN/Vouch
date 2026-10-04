@@ -6,14 +6,19 @@ license = "MIT OR Apache-2.0"
 description = "Vouch attestor: runs pof-verify and signs the verdict for chains that cannot read Zcash. Plus the demo holder."
 
 [features]
-default = ["demo-prover"]
+default = ["demo-prover", "rail"]
+# The rail API reads deposit transactions from lightwalletd.
+rail = ["dep:pof-anchor"]
 # Hosts the demo holder (proves on request against the demo ledger). Off for a plain attestor.
 demo-prover = ["dep:pof-prove"]
 
 [dependencies]
 pof-core = { path = "../pof-core" }
-pof-verify = { path = "../pof-verify", default-features = false }
+pof-verify = { path = "../pof-verify", default-features = false, features = ["batch"] }
 pof-prove = { path = "../pof-prove", default-features = false, optional = true }
+pof-anchor = { path = "../pof-anchor", optional = true }
+hmac = "0.12"
+sha2 = "0.10"
 axum = "0.8"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "signal"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }

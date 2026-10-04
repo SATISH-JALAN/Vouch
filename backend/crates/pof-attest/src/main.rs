@@ -12,6 +12,7 @@
 //!   GET  /v1/anchor/:h                         → anchor records at height h
 //!   POST /v1/demo/prove   {request, bindSolana?} → {proof, revocationSecret, …}   (feature demo-prover)
 //!   GET  /health
+//!   …and the rail API (exit certificates, deposit matching, batches): see rail.rs.
 //!
 //! Environment: POF_ATTEST_KEY (hex Ed25519 seed; an ephemeral key is used if unset),
 //! POF_ANCHORS (anchor table JSON, required), POF_REVOCATIONS_URL (the site's /api/revocations),
@@ -32,7 +33,9 @@ use axum::{
 };
 use ed25519_dalek::{Signer, SigningKey};
 use pof_core::{subject_hash, Envelope};
-use pof_verify::{verify, AnchorRecord, Context, Verdict, ZkVerifier};
+use pof_verify::{verify, verify_batch, AnchorRecord, BatchResult, Context, Policy, Verdict, ZkVerifier};
+
+mod rail;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::{Mutex, Semaphore};
@@ -58,9 +61,10 @@ struct App {
     verifiers: Semaphore,
     #[cfg(feature = "demo-prover")]
     demo: Option<demo::Demo>,
+    rail: rail::Rail,
 }
 
-fn now() -> u64 {
+pub(crate) fn now() -> u64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
 }
 
@@ -104,7 +108,7 @@ impl App {
 
     /// The current confirmed slot, for pof-gate's freshness check. Errors are logged without the
     /// URL and answered without detail: the RPC URL may carry an API key.
-    async fn slot(&self) -> Result<u64, Refusal> {
+    pub(crate) async fn slot(&self) -> Result<u64, Refusal> {
         let Some(rpc) = &self.rpc else {
             return Err(Refusal(StatusCode::SERVICE_UNAVAILABLE, "this attestor has no SOLANA_RPC_URL, so it cannot sign a fresh attestation"));
         };
@@ -115,11 +119,24 @@ impl App {
     }
 
     async fn check(&self, proof: &str, audience: Option<&str>) -> Result<pof_verify::VerificationResult, Refusal> {
+        self.check_with(proof.as_bytes(), audience.unwrap_or(&self.audience), Policy::default(), &[]).await
+    }
+
+    /// One proof, with a verifier's own policy and reuse registry (the rail API).
+    pub(crate) async fn check_with(&self, proof: &[u8], audience: &str, policy: Policy, seen: &[String]) -> Result<pof_verify::VerificationResult, Refusal> {
         let revoked = self.revoked().await;
         let _permit = tokio::time::timeout(Duration::from_secs(5), self.verifiers.acquire()).await.map_err(|_| BUSY)?.map_err(|_| BUSY)?;
-        let ctx = Context { audience: audience.unwrap_or(&self.audience), anchors: &self.anchors, revoked_secrets: &revoked, now: now(), zk: &self.zk };
+        let ctx = Context { audience, anchors: &self.anchors, revoked_secrets: &revoked, now: now(), zk: &self.zk, policy, seen };
         // CPU-bound: keep it off the async workers so /health and the rest stay responsive.
-        Ok(tokio::task::block_in_place(|| verify(proof.as_bytes(), &ctx)))
+        Ok(tokio::task::block_in_place(|| verify(proof, &ctx)))
+    }
+
+    /// A reserves batch: one permit, since its proofs are checked together.
+    pub(crate) async fn check_batch(&self, batch: &[u8], audience: &str, policy: Policy) -> Result<BatchResult, Refusal> {
+        let revoked = self.revoked().await;
+        let _permit = tokio::time::timeout(Duration::from_secs(10), self.verifiers.acquire()).await.map_err(|_| BUSY)?.map_err(|_| BUSY)?;
+        let ctx = Context { audience, anchors: &self.anchors, revoked_secrets: &revoked, now: now(), zk: &self.zk, policy, seen: &[] };
+        Ok(tokio::task::block_in_place(|| verify_batch(batch, &ctx)))
     }
 }
 
@@ -151,7 +168,7 @@ struct ProofBody {
 }
 
 /// A refusal with a fixed message: small to return, turned into a response at the edge.
-struct Refusal(StatusCode, &'static str);
+pub(crate) struct Refusal(StatusCode, &'static str);
 
 const BUSY: Refusal = Refusal(StatusCode::TOO_MANY_REQUESTS, "the attestor is busy; try again in a few seconds");
 
@@ -161,7 +178,7 @@ impl IntoResponse for Refusal {
     }
 }
 
-fn err(status: StatusCode, msg: impl Into<String>) -> Response {
+pub(crate) fn err(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, Json(json!({ "error": msg.into() }))).into_response()
 }
 
@@ -367,6 +384,7 @@ async fn main() -> anyhow::Result<()> {
         verifiers: Semaphore::new(std::thread::available_parallelism().map_or(2, |n| n.get())),
         #[cfg(feature = "demo-prover")]
         demo,
+        rail: rail::Rail::from_env()?,
     });
     if app.rpc.is_none() {
         tracing::warn!("SOLANA_RPC_URL unset: /v1/attest will refuse to sign (it has no slot for freshness)");
@@ -378,7 +396,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/v1/pubkey", get(pubkey))
         .route("/v1/anchor/{h}", get(anchor))
         .route("/v1/attest", post(attest))
-        .route("/v1/verify", post(verify_only));
+        .route("/v1/verify", post(verify_only))
+        .route("/v1/certificates", post(rail::submit).get(rail::list))
+        .route("/v1/certificates/{id}", get(rail::get_one))
+        .route("/v1/certificates/{id}/match", post(rail::match_deposit))
+        // a batch of up to 64 proofs is ~1 MB as base64url
+        .route("/v1/batch", post(rail::batch).layer(DefaultBodyLimit::max(2 * 1024 * 1024)));
     #[cfg(feature = "demo-prover")]
     let router = router.route("/v1/demo/prove", post(demo::prove));
     let router = router.layer(DefaultBodyLimit::max(BODY_LIMIT)).with_state(app);
