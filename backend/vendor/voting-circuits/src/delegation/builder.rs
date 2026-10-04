@@ -112,6 +112,10 @@ pub struct DelegationBundle {
     pub circuit: circuit::Circuit,
     /// Public inputs (14 field elements).
     pub instance: circuit::Instance,
+    /// VOUCH MODIFICATION: the real nullifier of each of the five slots
+    /// (padding slots: of their synthetic note), in slot order. A
+    /// `RevealCircuit` proof publishes these when its reveal flag is set.
+    pub real_nullifiers: [pallas::Base; circuit::MAX_REAL_NOTES],
 }
 
 // `ExtractP` from the Orchard spec: the x-coordinate of a non-identity Pallas
@@ -421,7 +425,7 @@ struct PaddingSlot {
     cmx: pallas::Base,
     v_raw: u64,
     gov_null: pallas::Base,
-    #[cfg(test)]
+    // VOUCH MODIFICATION: kept outside tests too, for RevealCircuit.
     real_nf: pallas::Base,
 }
 
@@ -487,7 +491,6 @@ fn build_padding_slot(
         cmx: padding.cmx,
         v_raw: 0,
         gov_null,
-        #[cfg(test)]
         real_nf: padding.real_nf,
     })
 }
@@ -757,6 +760,7 @@ pub fn build_delegation_bundle(
     let mut cmx_values = Vec::with_capacity(circuit::MAX_REAL_NOTES);
     let mut v_values = Vec::with_capacity(circuit::MAX_REAL_NOTES);
     let mut gov_nulls = Vec::with_capacity(circuit::MAX_REAL_NOTES);
+    let mut real_nullifiers = Vec::with_capacity(circuit::MAX_REAL_NOTES);
 
     // Process real notes: derive psi/rcm from rseed, compute the note commitment,
     // real nullifier, and gov nullifier, then pack everything into a NoteSlotWitness.
@@ -795,6 +799,7 @@ pub fn build_delegation_bundle(
         cmx_values.push(cmx);
         v_values.push(v_raw);
         gov_nulls.push(gov_null);
+        real_nullifiers.push(real_nf.inner());
     }
 
     // Pad remaining slots with zero-value dummy notes (ZIP §Note Padding).
@@ -809,6 +814,7 @@ pub fn build_delegation_bundle(
         cmx_values.push(padding.cmx);
         v_values.push(padding.v_raw);
         gov_nulls.push(padding.gov_null);
+        real_nullifiers.push(padding.real_nf);
     }
 
     let notes: [NoteSlotWitness; circuit::MAX_REAL_NOTES] =
@@ -955,7 +961,8 @@ pub fn build_delegation_bundle(
         dom,
     )?;
 
-    Ok(DelegationBundle { circuit, instance })
+    let real_nullifiers = real_nullifiers.try_into().unwrap_or_else(|_| unreachable!());
+    Ok(DelegationBundle { circuit, instance, real_nullifiers })
 }
 
 // ================================================================
