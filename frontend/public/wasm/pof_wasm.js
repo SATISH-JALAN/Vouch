@@ -1,17 +1,21 @@
 /**
  * Verify a proof. `bytes` is the binary `.pof` or its base64url text.
- * `anchors_json`: `[{network,height,ncRoot,nfRoot}]`; `revoked_json`: `["hex secret", …]`.
+ * `anchors_json`: `[{network,height,ncRoot,nfRoot}]`; `revoked_json`: `["hex secret", …]`;
+ * `policy_json` (optional): `{tipHeight?, maxAnchorAge?, dormantSince?, epoch?}`;
+ * `seen_json` (optional): `["hex tag", …]`, the tags already accepted in that epoch.
  * Returns the JSON projection of `VerificationResult`.
  * @param {Uint8Array} bytes
  * @param {string} audience
  * @param {bigint} now_sec
  * @param {string} anchors_json
  * @param {string} revoked_json
+ * @param {string | null} [policy_json]
+ * @param {string | null} [seen_json]
  * @returns {string}
  */
-export function verify(bytes, audience, now_sec, anchors_json, revoked_json) {
-    let deferred6_0;
-    let deferred6_1;
+export function verify(bytes, audience, now_sec, anchors_json, revoked_json, policy_json, seen_json) {
+    let deferred8_0;
+    let deferred8_1;
     try {
         const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
@@ -21,18 +25,65 @@ export function verify(bytes, audience, now_sec, anchors_json, revoked_json) {
         const len2 = WASM_VECTOR_LEN;
         const ptr3 = passStringToWasm0(revoked_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len3 = WASM_VECTOR_LEN;
-        const ret = wasm.verify(ptr0, len0, ptr1, len1, now_sec, ptr2, len2, ptr3, len3);
-        var ptr5 = ret[0];
-        var len5 = ret[1];
+        var ptr4 = isLikeNone(policy_json) ? 0 : passStringToWasm0(policy_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len4 = WASM_VECTOR_LEN;
+        var ptr5 = isLikeNone(seen_json) ? 0 : passStringToWasm0(seen_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len5 = WASM_VECTOR_LEN;
+        const ret = wasm.verify(ptr0, len0, ptr1, len1, now_sec, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5);
+        var ptr7 = ret[0];
+        var len7 = ret[1];
         if (ret[3]) {
-            ptr5 = 0; len5 = 0;
+            ptr7 = 0; len7 = 0;
             throw takeFromExternrefTable0(ret[2]);
         }
-        deferred6_0 = ptr5;
-        deferred6_1 = len5;
-        return getStringFromWasm0(ptr5, len5);
+        deferred8_0 = ptr7;
+        deferred8_1 = len7;
+        return getStringFromWasm0(ptr7, len7);
     } finally {
-        wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
+        wasm.__wbindgen_free(deferred8_0, deferred8_1, 1);
+    }
+}
+
+/**
+ * Verify a reserves batch (.pofb bytes or base64url text). Same inputs as `verify`; returns the
+ * JSON projection of `BatchResult`. The browser checks the members' proofs one at a time.
+ * @param {Uint8Array} bytes
+ * @param {string} audience
+ * @param {bigint} now_sec
+ * @param {string} anchors_json
+ * @param {string} revoked_json
+ * @param {string | null} [policy_json]
+ * @param {string | null} [seen_json]
+ * @returns {string}
+ */
+export function verifyBatch(bytes, audience, now_sec, anchors_json, revoked_json, policy_json, seen_json) {
+    let deferred8_0;
+    let deferred8_1;
+    try {
+        const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(audience, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(anchors_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(revoked_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        var ptr4 = isLikeNone(policy_json) ? 0 : passStringToWasm0(policy_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len4 = WASM_VECTOR_LEN;
+        var ptr5 = isLikeNone(seen_json) ? 0 : passStringToWasm0(seen_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len5 = WASM_VECTOR_LEN;
+        const ret = wasm.verifyBatch(ptr0, len0, ptr1, len1, now_sec, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5);
+        var ptr7 = ret[0];
+        var len7 = ret[1];
+        if (ret[3]) {
+            ptr7 = 0; len7 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred8_0 = ptr7;
+        deferred8_1 = len7;
+        return getStringFromWasm0(ptr7, len7);
+    } finally {
+        wasm.__wbindgen_free(deferred8_0, deferred8_1, 1);
     }
 }
 
@@ -94,6 +145,10 @@ function getUint8ArrayMemory0() {
         cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
     }
     return cachedUint8ArrayMemory0;
+}
+
+function isLikeNone(x) {
+    return x === undefined || x === null;
 }
 
 function passArray8ToWasm0(arg, malloc) {
