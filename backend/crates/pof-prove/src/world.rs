@@ -38,7 +38,20 @@ pub struct DemoWorld {
     pub holder: Vec<StoredNote>,
     pub leaves: Vec<String>,
     pub spent: Vec<String>,
+    /// Earlier blocks of the demo ledger: how many leaves the tree had then. The demo's spent
+    /// set never changes, so a checkpoint only cuts the tree.
+    #[serde(default)]
+    pub checkpoints: Vec<WorldCheckpoint>,
 }
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorldCheckpoint {
+    pub height: u32,
+    pub leaves: usize,
+}
+
+/// How far before the demo anchor its one checkpoint sits.
+pub const DEMO_CHECKPOINT_BACK: u32 = 10_040;
 
 const ZEC: u64 = 100_000_000;
 
@@ -79,7 +92,9 @@ impl DemoWorld {
                 position,
             });
         }
-        DemoWorld { network: "demo".into(), height, spending_key: hex::encode(sk.to_bytes()), holder, leaves, spent }
+        // The tree before the holder's last note (200 ZEC): the other four are "unmoved since" then.
+        let checkpoints = vec![WorldCheckpoint { height: height.saturating_sub(DEMO_CHECKPOINT_BACK), leaves: holder[4].position as usize }];
+        DemoWorld { network: "demo".into(), height, spending_key: hex::encode(sk.to_bytes()), holder, leaves, spent, checkpoints }
     }
 
     pub fn spending_key(&self) -> anyhow::Result<SpendingKey> {
@@ -113,7 +128,17 @@ impl DemoWorld {
             height: self.height,
             tree: NoteTree::from_cmx(&leaves).ok_or_else(|| anyhow::anyhow!("non-canonical leaf"))?,
             imt: DenseImtProvider::from_nullifiers(&spent),
+            nc_height: self.height,
         })
+    }
+
+    /// The tree as it stood at an earlier checkpoint, with today's spent set: a snapshot for
+    /// "unmoved since `height`" proofs.
+    pub fn snapshot_since(&self, height: u32) -> anyhow::Result<Snapshot> {
+        let cp = self.checkpoints.iter().find(|c| c.height == height).ok_or_else(|| anyhow::anyhow!("the demo ledger has no checkpoint at block {height}"))?;
+        let leaves = self.leaves[..cp.leaves.min(self.leaves.len())].iter().map(|h| hex_array(h, "leaf")).collect::<anyhow::Result<Vec<[u8; 32]>>>()?;
+        let old = NoteTree::from_cmx(&leaves).ok_or_else(|| anyhow::anyhow!("non-canonical leaf"))?;
+        Ok(self.snapshot()?.since(old, height))
     }
 }
 
