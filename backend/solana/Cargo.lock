@@ -2231,6 +2231,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pof-reserve"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "solana-instructions-sysvar 3.0.1",
+ "solana-sdk-ids",
+]
+
+[[package]]
 name = "pof-solana-tests"
 version = "0.1.0"
 dependencies = [
@@ -2241,6 +2251,7 @@ dependencies = [
  "litesvm-token",
  "pof-credit",
  "pof-gate",
+ "pof-reserve",
  "solana-clock",
  "solana-instruction",
  "solana-keypair",
