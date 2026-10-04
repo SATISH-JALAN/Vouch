@@ -1,7 +1,7 @@
 //! Holder-side proving. Never compiled into the verifier or the WASM build.
 
-use pof_core::{signing_message, Envelope, ZAT_PER_UNIT};
-use voting_circuits::delegation::{build_delegation_bundle, create_delegation_proof, ImtProvider, RealNoteInput};
+use pof_core::{signing_message, Envelope, CIRCUIT_REVEAL, CIRCUIT_THRESHOLD, ZAT_PER_UNIT};
+use voting_circuits::delegation::{build_delegation_bundle, create_delegation_proof, create_reveal_proof, ImtProvider, RealNoteInput, RevealCircuit};
 use voting_circuits::ff::Field;
 use voting_circuits::rand::rngs::OsRng;
 use voting_crypto_deps::orchard::{
@@ -26,6 +26,8 @@ pub struct HeldNote {
 pub enum ProveError {
     #[error("a holding proof can only assert HoldsAtLeast")]
     UnsupportedClaim,
+    #[error("this prover has no circuit {0}")]
+    UnsupportedCircuit(u8),
     #[error("the threshold must be a whole number of 0.125 ZEC units")]
     NotWholeUnits,
     #[error("between 1 and 5 notes are required, got {0}")]
@@ -50,20 +52,26 @@ impl From<ZkError> for ProveError {
         match e {
             ZkError::UnsupportedClaim => ProveError::UnsupportedClaim,
             ZkError::NotWholeUnits => ProveError::NotWholeUnits,
+            ZkError::UnsupportedCircuit(c) => ProveError::UnsupportedCircuit(c),
             other => ProveError::Build(other.to_string()),
         }
     }
 }
 
-/// Fill `env.evidence` with a real proof that `notes` (owned by `sk`, unspent at the anchor)
-/// total at least the claimed threshold. Every other envelope field must already be final:
-/// the proof binds to them.
+/// Fill `env.evidence` with a real proof that `notes` (owned by `sk`) total at least the claimed
+/// threshold. Each note's `merkle_path` must lead to `env.anchor.nc_root` (the tree at
+/// `nc_height`) and `imt` must be the spent set at `env.anchor.height`; when the two heights
+/// differ the proof says the notes existed at `nc_height` and have not moved since. Every other
+/// envelope field must already be final: the proof binds to them.
 pub fn prove_holding(
     sk: &SpendingKey,
     notes: Vec<HeldNote>,
     imt: &impl ImtProvider,
     env: &mut Envelope,
 ) -> Result<(), ProveError> {
+    if env.circuit != CIRCUIT_THRESHOLD && env.circuit != CIRCUIT_REVEAL {
+        return Err(ProveError::UnsupportedCircuit(env.circuit));
+    }
     let min = min_ballots(&env.claim)?;
     if notes.is_empty() || notes.len() > 5 {
         return Err(ProveError::NoteCount(notes.len()));
@@ -113,7 +121,17 @@ pub fn prove_holding(
     )
     .map_err(|e| ProveError::Build(e.to_string()))?;
     let instance = bundle.instance.with_min_ballots(min);
-    let proof = create_delegation_proof(bundle.circuit, &instance).map_err(|e| ProveError::Prove(e.to_string()))?;
+    // Circuit 2 (an exit certificate) publishes the notes' real nullifiers, so the recipient can
+    // match the deposit to exactly these notes.
+    let (instance, proof) = if env.circuit == CIRCUIT_REVEAL {
+        let instance = instance.with_reveal(true, bundle.real_nullifiers);
+        let proof = create_reveal_proof(RevealCircuit(bundle.circuit), &instance);
+        (instance, proof)
+    } else {
+        let proof = create_delegation_proof(bundle.circuit, &instance);
+        (instance, proof)
+    };
+    let proof = proof.map_err(|e| ProveError::Prove(e.to_string()))?;
 
     let rk = SpendValidatingKey::from(fvk.clone()).randomize(&alpha);
     env.evidence.public_inputs = [
@@ -124,6 +142,7 @@ pub fn prove_holding(
     ]
     .into_iter()
     .chain(instance.gov_null.iter().map(base_to_bytes))
+    .chain(instance.reveal.iter().flat_map(|(flag, nfs)| std::iter::once(base_to_bytes(flag)).chain(nfs.iter().map(base_to_bytes))))
     .collect();
     env.evidence.proof = proof;
 
