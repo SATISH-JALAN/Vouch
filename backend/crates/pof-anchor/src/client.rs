@@ -3,9 +3,9 @@
 
 use futures_util::StreamExt;
 use tonic::transport::{Channel, ClientTlsConfig};
-use zcash_client_backend::proto::service::{compact_tx_streamer_client::CompactTxStreamerClient, BlockId, BlockRange, ChainSpec, PoolType};
+use zcash_client_backend::proto::service::{compact_tx_streamer_client::CompactTxStreamerClient, BlockId, BlockRange, ChainSpec, PoolType, TxFilter};
 
-use crate::{Action, Snapshot};
+use crate::{Action, Checkpoint, Snapshot, CHECKPOINT_EVERY};
 
 pub struct Lightwalletd {
     inner: CompactTxStreamerClient<Channel>,
@@ -49,7 +49,40 @@ impl Lightwalletd {
         Ok((tree.root().to_bytes(), tree.size() as u64, ts.hash))
     }
 
-    /// Every Ironwood compact action in `from..=to`, in chain order.
+    /// The Ironwood nullifiers a mined transaction reveals, and its height: what an exit
+    /// certificate's deposit is matched against. `txid` is hex in the usual display order.
+    /// lightwalletd gives the height; the block's compact form lists the transaction's actions.
+    pub async fn transaction_nullifiers(&mut self, txid: &str) -> anyhow::Result<(u32, Vec<[u8; 32]>)> {
+        let display: [u8; 32] = hex::decode(txid.trim()).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| anyhow::anyhow!("a txid is 32 bytes of hex"))?;
+        let mut protocol = display;
+        protocol.reverse();
+        let raw = match self.inner.get_transaction(TxFilter { block: None, index: 0, hash: protocol.to_vec() }).await {
+            Ok(r) => r.into_inner(),
+            Err(_) => self.inner.get_transaction(TxFilter { block: None, index: 0, hash: display.to_vec() }).await?.into_inner(),
+        };
+        // 0 is the mempool and u64::MAX "not in the main chain": either way, not mined yet.
+        anyhow::ensure!(raw.height > 0 && raw.height < u32::MAX as u64, "transaction {txid} is not mined yet");
+        let height = raw.height as u32;
+        let range = BlockRange {
+            start: Some(BlockId { height: height as u64, hash: vec![] }),
+            end: Some(BlockId { height: height as u64, hash: vec![] }),
+            pool_types: vec![PoolType::Ironwood as i32],
+        };
+        let mut stream = self.inner.get_block_range(range).await?.into_inner();
+        while let Some(block) = stream.next().await {
+            for tx in block?.vtx {
+                if tx.txid == protocol || tx.txid == display {
+                    let nfs = tx.ironwood_actions.iter().map(|a| a.nullifier.as_slice().try_into()).collect::<Result<Vec<[u8; 32]>, _>>()?;
+                    return Ok((height, nfs));
+                }
+            }
+        }
+        // A transaction with no Ironwood actions is filtered out of the compact block.
+        Ok((height, vec![]))
+    }
+
+    /// Every Ironwood compact action in `from..=to`, in chain order, with a checkpoint at every
+    /// 1,000th block and at `to`.
     pub async fn scan(&mut self, network: &str, from: u32, to: u32, mut progress: impl FnMut(u32, usize)) -> anyhow::Result<Snapshot> {
         let range = BlockRange {
             start: Some(BlockId { height: from as u64, hash: vec![] }),
@@ -58,6 +91,7 @@ impl Lightwalletd {
         };
         let mut stream = self.inner.get_block_range(range).await?.into_inner();
         let mut actions = Vec::new();
+        let mut checkpoints = Vec::new();
         let mut last_hash = [0u8; 32];
         let mut last_height = from.saturating_sub(1);
         while let Some(block) = stream.next().await {
@@ -75,11 +109,12 @@ impl Lightwalletd {
                     });
                 }
             }
-            if last_height.is_multiple_of(1_000) {
+            if last_height.is_multiple_of(CHECKPOINT_EVERY) || last_height == to {
+                checkpoints.push(Checkpoint { height: last_height, actions: actions.len() as u64, block_hash: last_hash });
                 progress(last_height, actions.len());
             }
         }
         anyhow::ensure!(last_height == to, "the stream ended at {last_height}, expected {to}");
-        Ok(Snapshot { network: network.into(), height: to, block_hash: last_hash, actions })
+        Ok(Snapshot { network: network.into(), height: to, block_hash: last_hash, actions, checkpoints })
     }
 }
