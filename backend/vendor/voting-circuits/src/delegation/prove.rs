@@ -11,7 +11,7 @@ use voting_crypto_deps::halo2_proofs::{
     poly::commitment::Params,
 };
 
-use super::circuit::{Circuit, Instance, K};
+use super::circuit::{Circuit, Instance, RevealCircuit, K};
 use crate::{
     prove_error::{create_proof_bytes, verify_proof_bytes},
     ProveError,
@@ -208,6 +208,44 @@ pub fn verify_delegation_proof(proof: &[u8], instance: &Instance) -> Result<(), 
     let public_inputs = instance.to_halo2_instance();
 
     verify_proof_bytes("delegation", params, vk, proof, &public_inputs)
+}
+
+// ================================================================
+// VOUCH MODIFICATION — the exit-certificate circuit (RevealCircuit)
+// ================================================================
+
+static REVEAL_PK_CACHE: std::sync::OnceLock<Result<DelegationKeys, String>> = std::sync::OnceLock::new();
+
+/// VOUCH MODIFICATION: params and keys for [`RevealCircuit`], cached per
+/// process like the delegation keys. Same `K`, its own verifying key.
+pub fn reveal_cached_keys() -> Result<&'static DelegationKeys, ProveError> {
+    match REVEAL_PK_CACHE.get_or_init(|| {
+        let params = delegation_params();
+        let empty = RevealCircuit::default();
+        keygen_vk(&params, &empty)
+            .map_err(ProveError::KeygenVk)
+            .and_then(|vk| keygen_pk(&params, vk.clone(), &empty).map(|pk| (pk, vk)).map_err(ProveError::KeygenPk))
+            .map(|(pk, vk)| (params, pk, vk))
+            .map_err(|error| error.to_string())
+    }) {
+        Ok(keys) => Ok(keys),
+        Err(error) => Err(ProveError::CachedKeygen(error.clone())),
+    }
+}
+
+/// VOUCH MODIFICATION: prove a [`RevealCircuit`]. `instance` must carry
+/// `with_reveal`.
+pub fn create_reveal_proof(circuit: RevealCircuit, instance: &Instance) -> Result<Vec<u8>, ProveError> {
+    let (params, pk, _vk) = reveal_cached_keys()?;
+    create_proof_bytes(params, pk, circuit, &instance.to_halo2_instance())
+}
+
+/// VOUCH MODIFICATION: verify a [`RevealCircuit`] proof against its 21
+/// public inputs. The same caller-authentication rules as
+/// [`verify_delegation_proof`] apply.
+pub fn verify_reveal_proof(proof: &[u8], instance: &Instance) -> Result<(), String> {
+    let (params, _pk, vk) = reveal_cached_keys().map_err(|error| error.to_string())?;
+    verify_proof_bytes("reveal", params, vk, proof, &instance.to_halo2_instance())
 }
 
 #[cfg(test)]
@@ -445,6 +483,43 @@ mod prove_tests {
         let inst = b.instance.clone().with_min_ballots(40);
         let p = create_delegation_proof(b.circuit.clone(), &inst).unwrap();
         assert!(verify_delegation_proof(&p, &inst.clone().with_min_ballots(41)).is_err());
+    }
+
+    /// VOUCH MODIFICATION: the exit-certificate circuit publishes the slots' real nullifiers when
+    /// reveal = 1, forces zeros when reveal = 0, and refuses a forged nullifier or a flag that is
+    /// not a bit. Its proofs are not delegation proofs, and the other way round.
+    #[test]
+    #[ignore = "real proofs"]
+    fn vouch_reveal() {
+        let b = vouch_bundle(40 * 12_500_000);
+        let nfs = b.real_nullifiers;
+        let zeros = [pallas::Base::from(0u64); 5];
+        let with = |reveal: bool, shown: [pallas::Base; 5]| b.instance.clone().with_min_ballots(40).with_reveal(reveal, shown);
+        let refuses = |circuit: RevealCircuit, inst: &Instance, what: &str| match create_reveal_proof(circuit, inst) {
+            Err(_) => {}
+            Ok(p) => assert!(verify_reveal_proof(&p, inst).is_err(), "{what} must not verify"),
+        };
+
+        let on = with(true, nfs);
+        let p = create_reveal_proof(RevealCircuit(b.circuit.clone()), &on).unwrap();
+        verify_reveal_proof(&p, &on).expect("reveal = 1 publishes the real nullifiers");
+        let mut forged = nfs;
+        forged[0] += pallas::Base::from(1u64);
+        assert!(verify_reveal_proof(&p, &with(true, forged)).is_err(), "a forged revealed nullifier");
+        assert!(verify_delegation_proof(&p, &b.instance.clone().with_min_ballots(40)).is_err(), "not a delegation proof");
+
+        let off = with(false, zeros);
+        let q = create_reveal_proof(RevealCircuit(b.circuit.clone()), &off).unwrap();
+        verify_reveal_proof(&q, &off).expect("reveal = 0 publishes zeros");
+        assert!(verify_reveal_proof(&q, &with(false, nfs)).is_err(), "reveal = 0 with nullifiers");
+        refuses(RevealCircuit(b.circuit.clone()), &with(false, nfs), "reveal = 0 claiming nullifiers");
+
+        let mut two = off.clone();
+        two.reveal = Some((pallas::Base::from(2u64), nfs.map(|n| n + n)));
+        refuses(RevealCircuit(b.circuit.clone()), &two, "a reveal flag of 2");
+
+        let d = create_delegation_proof(b.circuit.clone(), &b.instance.clone().with_min_ballots(40)).unwrap();
+        assert!(verify_reveal_proof(&d, &on).is_err(), "a delegation proof is not a reveal proof");
     }
 
     #[test]
