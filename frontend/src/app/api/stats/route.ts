@@ -3,7 +3,7 @@ import { readJson } from '@/lib/server/http'
 import { clientKey, counters, incr, rateLimit } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
-const KINDS = new Set(['Valid', 'Expired', 'Revoked', 'WrongAudience', 'AnchorNotFound', 'ProofInvalid', 'Malformed'])
+const KINDS = new Set(['Valid', 'Expired', 'Revoked', 'WrongAudience', 'AnchorNotFound', 'AnchorTooOld', 'NotDormantLongEnough', 'WrongScope', 'AlreadyUsed', 'ProofInvalid', 'Malformed'])
 
 export async function GET() {
   try {
