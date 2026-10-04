@@ -11,8 +11,12 @@
 //!
 //! ```text
 //!  magic "VSNP" · u16 version · u8 network len · network · u32 height · 32 block hash ·
-//!  u64 count · count × (nullifier 32 · cmx 32 · epk 32 · compact ciphertext 52) · blake2b-256
+//!  u64 count · count × (nullifier 32 · cmx 32 · epk 32 · compact ciphertext 52) ·
+//!  [v2] u32 n · n × (u32 height · u64 actions so far · 32 block hash) · blake2b-256
 //! ```
+//!
+//! The checkpoints (every 1,000th block and the last) let one snapshot answer for an earlier
+//! block too: the tree at a checkpoint is the first `actions` leaves.
 
 use std::io::{Read, Write};
 
@@ -90,7 +94,21 @@ pub struct Snapshot {
     pub height: u32,
     pub block_hash: [u8; 32],
     pub actions: Vec<Action>,
+    /// Where the chain stood at earlier blocks inside the scan: every 1,000th block and the last.
+    /// One snapshot then gives the tree at an older block (`at`), for "unmoved since" proofs.
+    pub checkpoints: Vec<Checkpoint>,
 }
+
+/// The number of Ironwood actions up to and including `height`, and that block's hash.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Checkpoint {
+    pub height: u32,
+    pub actions: u64,
+    pub block_hash: [u8; 32],
+}
+
+/// Checkpoints are kept at multiples of this many blocks.
+pub const CHECKPOINT_EVERY: u32 = 1_000;
 
 /// Mirrors `pof_verify::AnchorRecord` (JSON, camelCase).
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -105,8 +123,10 @@ pub struct AnchorRecord {
 }
 
 const MAGIC: &[u8; 4] = b"VSNP";
-const VERSION: u16 = 1;
+/// Version 2 appends the checkpoint table; version 1 files still read (one checkpoint, the end).
+const VERSION: u16 = 2;
 const RECORD: usize = 32 + 32 + 32 + 52;
+const CHECKPOINT: usize = 4 + 8 + 32;
 
 impl Snapshot {
     pub fn write(&self, w: &mut impl Write) -> anyhow::Result<()> {
@@ -125,6 +145,12 @@ impl Snapshot {
             buf.extend_from_slice(&a.epk);
             buf.extend_from_slice(&a.ciphertext);
         }
+        buf.extend_from_slice(&(self.checkpoints.len() as u32).to_le_bytes());
+        for cp in &self.checkpoints {
+            buf.extend_from_slice(&cp.height.to_le_bytes());
+            buf.extend_from_slice(&cp.actions.to_le_bytes());
+            buf.extend_from_slice(&cp.block_hash);
+        }
         let sum = blake2b_simd::Params::new().hash_length(32).hash(&buf);
         buf.extend_from_slice(sum.as_bytes());
         w.write_all(&buf)?;
@@ -140,13 +166,16 @@ impl Snapshot {
         anyhow::ensure!(blake2b_simd::Params::new().hash_length(32).hash(body).as_bytes() == sum, "snapshot checksum mismatch");
         let mut c = Cursor(body);
         anyhow::ensure!(&c.array::<4>()? == MAGIC, "not a Vouch snapshot");
-        anyhow::ensure!(u16::from_le_bytes(c.array()?) == VERSION, "unknown snapshot version");
+        let version = u16::from_le_bytes(c.array()?);
+        anyhow::ensure!(version == 1 || version == VERSION, "unknown snapshot version");
         let [nlen] = c.array()?;
         let network = String::from_utf8(c.take(nlen as usize)?.to_vec())?;
         let height = u32::from_le_bytes(c.array()?);
         let block_hash = c.array()?;
         let count = u64::from_le_bytes(c.array()?);
-        let (records, rest) = c.0.as_chunks::<RECORD>();
+        let len = usize::try_from(count).ok().and_then(|n| n.checked_mul(RECORD)).ok_or_else(|| anyhow::anyhow!("snapshot count is too large"))?;
+        let records = if version == 1 { std::mem::take(&mut c.0) } else { c.take(len)? };
+        let (records, rest) = records.as_chunks::<RECORD>();
         anyhow::ensure!(rest.is_empty() && records.len() as u64 == count, "snapshot length does not match its count");
         let actions = records
             .iter()
@@ -155,7 +184,40 @@ impl Snapshot {
                 Ok(Action { nullifier: c.array()?, cmx: c.array()?, epk: c.array()?, ciphertext: c.array()? })
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok(Snapshot { network, height, block_hash, actions })
+        let checkpoints = if version == 1 {
+            vec![Checkpoint { height, actions: count, block_hash }]
+        } else {
+            let n = u32::from_le_bytes(c.array()?) as usize;
+            let (cps, rest) = c.0.as_chunks::<CHECKPOINT>();
+            anyhow::ensure!(rest.is_empty() && cps.len() == n, "snapshot checkpoint table does not match its count");
+            cps.iter()
+                .map(|b| {
+                    let mut c = Cursor(b);
+                    Ok(Checkpoint { height: u32::from_le_bytes(c.array()?), actions: u64::from_le_bytes(c.array()?), block_hash: c.array()? })
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?
+        };
+        // Ordered, inside the snapshot, and never more actions than it holds.
+        let ordered = checkpoints.windows(2).all(|w| w[0].height < w[1].height && w[0].actions <= w[1].actions);
+        anyhow::ensure!(ordered && checkpoints.iter().all(|cp| cp.height <= height && cp.actions <= count), "snapshot checkpoints are inconsistent");
+        Ok(Snapshot { network, height, block_hash, actions, checkpoints })
+    }
+
+    /// The chain as it stood at an earlier checkpoint: the same actions, cut at that block.
+    pub fn at(&self, height: u32) -> anyhow::Result<Snapshot> {
+        if height == self.height {
+            return Ok(self.clone());
+        }
+        let cp = self.checkpoints.iter().find(|cp| cp.height == height).ok_or_else(|| {
+            anyhow::anyhow!("this snapshot has no checkpoint at block {height}; scan again with pof-anchor (checkpoints fall every {CHECKPOINT_EVERY} blocks)")
+        })?;
+        Ok(Snapshot {
+            network: self.network.clone(),
+            height,
+            block_hash: cp.block_hash,
+            actions: self.actions[..cp.actions as usize].to_vec(),
+            checkpoints: self.checkpoints.iter().copied().filter(|c| c.height <= height).collect(),
+        })
     }
 
     pub fn tree(&self) -> anyhow::Result<NoteTree> {
@@ -245,7 +307,11 @@ mod tests {
 
     fn snapshot() -> Snapshot {
         let action = |i: u8| Action { nullifier: [i; 32], cmx: [i + 1; 32], epk: [i + 2; 32], ciphertext: [i + 3; 52] };
-        Snapshot { network: "mainnet".into(), height: 3_493_000, block_hash: [9; 32], actions: vec![action(1), action(10)] }
+        let checkpoints = vec![
+            Checkpoint { height: 3_492_000, actions: 1, block_hash: [8; 32] },
+            Checkpoint { height: 3_493_000, actions: 2, block_hash: [9; 32] },
+        ];
+        Snapshot { network: "mainnet".into(), height: 3_493_000, block_hash: [9; 32], actions: vec![action(1), action(10)], checkpoints }
     }
 
     fn bytes(s: &Snapshot) -> Vec<u8> {
@@ -266,6 +332,26 @@ mod tests {
         let s = snapshot();
         let back = Snapshot::read(&mut &bytes(&s)[..]).unwrap();
         assert_eq!((back.network, back.height, back.block_hash, back.actions), (s.network, s.height, s.block_hash, s.actions));
+        assert_eq!(back.checkpoints, s.checkpoints);
+    }
+
+    #[test]
+    fn an_earlier_checkpoint_cuts_the_actions() {
+        let s = snapshot();
+        let old = s.at(3_492_000).unwrap();
+        assert_eq!((old.height, old.block_hash, old.actions.len()), (3_492_000, [8; 32], 1));
+        assert_eq!(old.actions[0], s.actions[0]);
+        assert!(s.at(3_492_500).is_err(), "no checkpoint there");
+    }
+
+    #[test]
+    fn inconsistent_checkpoints_are_refused() {
+        let mut s = snapshot();
+        s.checkpoints[0].actions = 3;
+        assert!(Snapshot::read(&mut &bytes(&s)[..]).is_err(), "more actions than the snapshot holds");
+        let mut s = snapshot();
+        s.checkpoints.swap(0, 1);
+        assert!(Snapshot::read(&mut &bytes(&s)[..]).is_err(), "out of order");
     }
 
     #[test]
