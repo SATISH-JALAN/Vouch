@@ -1,10 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
-import { fetchPreset, loadVerifier, verify } from '@/lib/data/verifier'
+import { fetchPreset, isBatch, loadVerifier, verify } from '@/lib/data/verifier'
 import { PRESETS } from '@/lib/data/presets'
 import { DEMO_AUDIENCE } from '@/lib/data/chain'
-import type { Check, Preset, PresetId, VerificationResult } from '@/lib/data/types'
+import type { Check, Policy, Preset, PresetId, VerificationResult } from '@/lib/data/types'
 import { formatInt } from '@/lib/format'
 import { revealRows } from '@/lib/reveal'
 import { fromBase64Url, toBase64Url } from '@/lib/pof/bytes'
@@ -49,6 +49,8 @@ interface Checked {
 export function VerifierConsole() {
   const [text, setText] = useState('')
   const [audience, setAudience] = useState<string>(DEMO_AUDIENCE.id)
+  // Optional: the block the notes must be unmoved since (a rail picks one before an incident).
+  const [since, setSince] = useState('')
   const [active, setActive] = useState<PresetId | 'custom' | null>(null)
   const [checked, setChecked] = useState<Checked | null>(null)
   const [busy, setBusy] = useState(false)
@@ -62,7 +64,7 @@ export function VerifierConsole() {
   // only the latest run may land: an older one finishing late must not overwrite it
   const seq = useRef(0)
 
-  const run = useCallback(async (input: string | Uint8Array, which: PresetId | 'custom', as: string) => {
+  const run = useCallback(async (input: string | Uint8Array, which: PresetId | 'custom', as: string, policy?: Policy) => {
     const mine = ++seq.current
     setActive(which)
     setError(null)
@@ -73,11 +75,17 @@ export function VerifierConsole() {
       setError(`That is ${formatInt(Math.round(size))} bytes. A proof is about 12 KB; nothing over 1 MB is checked.`)
       return
     }
+    if (typeof input !== 'string' && isBatch(input)) {
+      setChecked(null)
+      setBusy(false)
+      setError('This is a reserves batch, not a single proof. Check it on /reserves, where the proofs are added up.')
+      return
+    }
     const audience = as.trim()
     const text = typeof input === 'string' ? input.trim() : toBase64Url(input)
     setBusy(true)
     try {
-      const result = await verify(input, audience, { count: true })
+      const result = await verify(input, audience, { count: true, policy })
       // a verdict means the WASM loaded after all (a retry after an earlier failure)
       setReady('ready')
       if (mine === seq.current) setChecked({ result, text, audience })
@@ -115,14 +123,23 @@ export function VerifierConsole() {
   const runPreset = async (p: Preset) => {
     const mine = ++seq.current
     setAudience(p.audience)
+    setSince(p.policy?.dormantSince ? String(p.policy.dormantSince) : '')
     try {
       const bytes = await fetchPreset(p.file)
       if (mine !== seq.current) return
       setText(toBase64Url(bytes))
-      await run(bytes, p.id, p.audience)
+      await run(bytes, p.id, p.audience, p.policy)
     } catch (err) {
       if (mine === seq.current) setError((err as Error).message)
     }
+  }
+
+  // What a manual check requires: the field, on top of a loaded preset's own policy.
+  const asked = (): Policy | undefined => {
+    const preset = PRESETS.find((p) => p.id === active)?.policy
+    const n = Number(since.replace(/[ ,]/g, ''))
+    const dormantSince = since.trim() && Number.isSafeInteger(n) && n >= 0 && n <= 0xffffffff ? n : undefined
+    return dormantSince === undefined && !preset ? undefined : { ...preset, dormantSince }
   }
 
   const onFile = async (file: File | undefined) => {
@@ -134,11 +151,11 @@ export function VerifierConsole() {
     const buf = new Uint8Array(await file.arrayBuffer())
     if (isPofBinary(buf)) {
       setText(toBase64Url(buf))
-      void run(buf, 'custom', audience)
+      void run(buf, 'custom', audience, asked())
     } else {
       const t = new TextDecoder().decode(buf).trim()
       setText(t)
-      void run(t, 'custom', audience)
+      void run(t, 'custom', audience, asked())
     }
   }
 
@@ -228,8 +245,21 @@ export function VerifierConsole() {
                   spellCheck={false}
                 />
               </label>
+              <label className="flex flex-col gap-2 sm:w-44">
+                <span className="t-eyebrow text-ink-3">UNMOVED SINCE · OPTIONAL</span>
+                <input
+                  className="field t-data"
+                  readOnly={busy}
+                  inputMode="numeric"
+                  placeholder="block height"
+                  value={since}
+                  onChange={(e) => setSince(e.target.value)}
+                  aria-describedby="since-hint"
+                  spellCheck={false}
+                />
+              </label>
               <div className="flex gap-2">
-                <button type="button" className="btn btn-primary" aria-busy={busy} disabled={!text.trim() || busy || ready === 'failed'} onClick={() => void run(text, active && active !== 'custom' ? active : 'custom', audience)}>
+                <button type="button" className="btn btn-primary" aria-busy={busy} disabled={!text.trim() || busy || ready === 'failed'} onClick={() => void run(text, active && active !== 'custom' ? active : 'custom', audience, asked())}>
                   <BtnLabel>{busy ? 'Checking…' : 'Verify'}</BtnLabel>
                 </button>
                 <button type="button" className="btn btn-secondary" onClick={clear} disabled={busy || (!text && !checked && !error)}>
@@ -239,6 +269,9 @@ export function VerifierConsole() {
             </div>
             <p id="paste-hint" className="t-data-sm text-ink-3">
               Try it: load a vector, change one character, verify again. Change the identifier and it will refuse.
+            </p>
+            <p id="since-hint" className="t-data-sm text-ink-3">
+              Unmoved since: require the notes to have been in the chain at that block or earlier, and untouched after it. Leave it empty to accept any.
             </p>
           </div>
         </div>
