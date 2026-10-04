@@ -197,6 +197,16 @@ const DOM_PUBLIC_OFFSET: usize = 13;
 /// `min_ballots = 0` reduces to the upstream statement.
 const MIN_BALLOTS_PUBLIC_OFFSET: usize = 14;
 
+/// VOUCH MODIFICATION — exit certificates (`RevealCircuit` only). Public input
+/// offset of the reveal flag, constrained to 0 or 1.
+const REVEAL_PUBLIC_OFFSET: usize = 15;
+
+/// VOUCH MODIFICATION — exit certificates (`RevealCircuit` only). Public input
+/// offsets of `reveal * real_nf_i` for the five note slots: the notes' real
+/// mainchain nullifiers when `reveal = 1`, all zero when `reveal = 0`. A
+/// recipient matches them against the nullifiers a deposit transaction spends.
+const REVEALED_NF_PUBLIC_OFFSETS: [usize; 5] = [16, 17, 18, 19, 20];
+
 /// Maximum number of real Ironwood notes consumed by one delegation proof.
 ///
 /// The proof always exposes five `gov_null` slots, padding unused positions
@@ -770,7 +780,23 @@ impl plonk::Circuit<pallas::Base> for Circuit {
     fn synthesize(
         &self,
         config: Self::Config,
+        layouter: impl Layouter<pallas::Base>,
+    ) -> Result<(), plonk::Error> {
+        self.synthesize_with(config, layouter, false)
+    }
+}
+
+impl Circuit {
+    /// The delegation statement; with `reveal` (VOUCH MODIFICATION, used only
+    /// by [`RevealCircuit`]) it also exposes `reveal * real_nf_i` for every
+    /// note slot. With `reveal = false` nothing is added, so the upstream
+    /// (+ min_ballots) constraint system and verifying key are unchanged.
+    #[allow(non_snake_case)]
+    fn synthesize_with(
+        &self,
+        config: Config,
         mut layouter: impl Layouter<pallas::Base>,
+        reveal: bool,
     ) -> Result<(), plonk::Error> {
         // Load the Sinsemilla generator lookup table (needed by ECC range checks).
         SinsemillaChip::load(config.sinsemilla_config_1.clone(), &mut layouter)?;
@@ -1161,9 +1187,10 @@ impl plonk::Circuit<pallas::Base> for Circuit {
         let mut cmx_cells = Vec::with_capacity(5);
         let mut v_cells = Vec::with_capacity(5);
         let mut gov_null_cells = Vec::with_capacity(5);
+        let mut real_nf_cells = Vec::with_capacity(5);
 
         for i in 0..5 {
-            let (cmx_i, v_i, gov_null_i) = synthesize_note_slot(
+            let (cmx_i, v_i, gov_null_i, real_nf_i) = synthesize_note_slot(
                 &config,
                 &mut layouter,
                 ecc_chip.clone(),
@@ -1180,6 +1207,46 @@ impl plonk::Circuit<pallas::Base> for Circuit {
             cmx_cells.push(cmx_i);
             v_cells.push(v_i);
             gov_null_cells.push(gov_null_i);
+            real_nf_cells.push(real_nf_i);
+        }
+
+        // VOUCH MODIFICATION — exit certificates (RevealCircuit only).
+        // reveal is copied from the instance and constrained boolean
+        // (reveal * reveal == reveal); each slot's real nullifier is multiplied
+        // by it and the product constrained to its public input. reveal = 1
+        // publishes the five real nullifiers; reveal = 0 forces all five
+        // public inputs to zero. Padding slots reveal the nullifiers of their
+        // dummy notes, which never appear on chain.
+        if reveal {
+            let reveal_cell = layouter.assign_region(
+                || "copy reveal from instance",
+                |mut region| {
+                    region.assign_advice_from_instance(
+                        || "reveal",
+                        config.primary,
+                        REVEAL_PUBLIC_OFFSET,
+                        config.advices[0],
+                        0,
+                    )
+                },
+            )?;
+            let reveal_squared = config.mul_chip().mul(
+                layouter.namespace(|| "reveal * reveal"),
+                &reveal_cell,
+                &reveal_cell,
+            )?;
+            layouter.assign_region(
+                || "reveal is 0 or 1",
+                |mut region| region.constrain_equal(reveal_squared.cell(), reveal_cell.cell()),
+            )?;
+            for (i, real_nf) in real_nf_cells.iter().enumerate() {
+                let shown = config.mul_chip().mul(
+                    layouter.namespace(|| format!("note {i} reveal * real_nf")),
+                    &reveal_cell,
+                    real_nf,
+                )?;
+                layouter.constrain_instance(shown.cell(), config.primary, REVEALED_NF_PUBLIC_OFFSETS[i])?;
+            }
         }
 
         // ---------------------------------------------------------------
@@ -1598,6 +1665,37 @@ impl plonk::Circuit<pallas::Base> for Circuit {
     }
 }
 
+/// VOUCH MODIFICATION — the exit-certificate circuit (Vouch circuit 2).
+///
+/// The same statement as [`Circuit`], plus a boolean public input `reveal`
+/// (offset 15) and five public inputs `reveal * real_nf_i` (offsets 16–20).
+/// It shares `configure` with [`Circuit`] (no new gates: the multiplication
+/// chip already exists) but has its own copy constraints, so its own
+/// verifying key; [`Circuit`]'s key is unchanged.
+#[derive(Clone, Debug, Default)]
+pub struct RevealCircuit(pub Circuit);
+
+impl plonk::Circuit<pallas::Base> for RevealCircuit {
+    type Config = Config;
+    type FloorPlanner = floor_planner::V1;
+
+    fn without_witnesses(&self) -> Self {
+        Self::default()
+    }
+
+    fn configure(meta: &mut plonk::ConstraintSystem<pallas::Base>) -> Self::Config {
+        <Circuit as plonk::Circuit<pallas::Base>>::configure(meta)
+    }
+
+    fn synthesize(
+        &self,
+        config: Self::Config,
+        layouter: impl Layouter<pallas::Base>,
+    ) -> Result<(), plonk::Error> {
+        self.0.synthesize_with(config, layouter, true)
+    }
+}
+
 // ================================================================
 // Per-note slot synthesis (conditions 9–14).
 // ================================================================
@@ -1625,6 +1723,8 @@ fn synthesize_note_slot(
     (
         AssignedCell<pallas::Base, pallas::Base>,
         AssignedCell<pallas::Base, pallas::Base>,
+        AssignedCell<pallas::Base, pallas::Base>,
+        // VOUCH MODIFICATION: the slot's real nullifier, for RevealCircuit.
         AssignedCell<pallas::Base, pallas::Base>,
     ),
     plonk::Error,
@@ -1903,7 +2003,7 @@ fn synthesize_note_slot(
     //   cmx_cell   → condition 3 (rho binding hash)
     //   v_base     → conditions 7 & 8 (gov commitment, min weight)
     //   gov_null   → exposed as public input
-    Ok((cmx_cell, v_base, gov_null_cell))
+    Ok((cmx_cell, v_base, gov_null_cell, real_nf.inner().clone()))
 }
 
 // ================================================================
@@ -1951,6 +2051,9 @@ pub struct Instance {
     /// VOUCH MODIFICATION: minimum ballot count the proof asserts. Zero
     /// reproduces the upstream statement (`num_ballots > 0`).
     pub min_ballots: pallas::Base,
+    /// VOUCH MODIFICATION: for [`RevealCircuit`] only, the reveal flag and the
+    /// five revealed nullifiers (`reveal * real_nf_i`). `None` for [`Circuit`].
+    pub reveal: Option<(pallas::Base, [pallas::Base; 5])>,
 }
 
 /// Errors returned while constructing delegation public inputs.
@@ -1973,6 +2076,8 @@ impl std::error::Error for InstanceError {}
 impl Instance {
     /// Number of public inputs serialized by [`Self::to_halo2_instance`].
     pub const NUM_PUBLIC_INPUTS: usize = 15;
+    /// VOUCH MODIFICATION: public inputs of a [`RevealCircuit`] instance.
+    pub const NUM_PUBLIC_INPUTS_REVEAL: usize = 21;
 
     /// Constructs an [`Instance`] from its constituent parts.
     ///
@@ -2020,7 +2125,15 @@ impl Instance {
             gov_null,
             dom,
             min_ballots: pallas::Base::from(0u64),
+            reveal: None,
         })
+    }
+
+    /// VOUCH MODIFICATION: makes this a [`RevealCircuit`] instance. With
+    /// `reveal = false` the revealed nullifiers must be zero.
+    pub fn with_reveal(mut self, reveal: bool, revealed_nf: [pallas::Base; 5]) -> Self {
+        self.reveal = Some((pallas::Base::from(u64::from(reveal)), revealed_nf));
+        self
     }
 
     /// VOUCH MODIFICATION: sets the threshold public input (in ballot units).
@@ -2053,6 +2166,9 @@ impl Instance {
             self.dom,
             self.min_ballots,
         ]
+        .into_iter()
+        .chain(self.reveal.iter().flat_map(|(flag, nfs)| std::iter::once(*flag).chain(nfs.iter().copied())))
+        .collect()
     }
 }
 
