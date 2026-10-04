@@ -1,7 +1,7 @@
 //! Every committed vector produces its recorded verdict. The WASM build runs the same list
 //! (`scripts/verify-fixtures-wasm.mjs`, `pnpm test:wasm`), so the two verifiers cannot drift apart.
 
-use pof_verify::{verify, AnchorRecord, Context, ZkVerifier};
+use pof_verify::{verify, verify_batch, AnchorRecord, Context, Policy, ZkVerifier};
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -43,7 +43,11 @@ fn every_vector_matches_expected() {
         for (name, want) in set["expected"].as_object().unwrap() {
             let file = std::fs::read(dir.join("proofs").join(format!("{name}.pof"))).unwrap();
             let audience = want["audience"].as_str().unwrap();
-            let r = verify(&file, &Context { audience, anchors: &all, revoked_secrets: &revoked, now, zk: &zk });
+            // A vector may name what its verifier requires (freshness, dormancy); none by default.
+            let policy: Policy = want.get("policy").map(|p| serde_json::from_value(p.clone()).unwrap()).unwrap_or_default();
+            // ...and which tags its reuse registry already holds.
+            let seen: Vec<String> = want.get("seen").map(|p| serde_json::from_value(p.clone()).unwrap()).unwrap_or_default();
+            let r = verify(&file, &Context { audience, anchors: &all, revoked_secrets: &revoked, now, zk: &zk, policy, seen: &seen });
             let got = serde_json::to_value(&r.verdict).unwrap()["kind"].as_str().unwrap().to_string();
             println!("{name:<18} {got}");
             if got != want["verdict"].as_str().unwrap() {
@@ -57,17 +61,34 @@ fn every_vector_matches_expected() {
             }
         }
     }
+    // Reserves batches: the summed verdict, and which member is at fault when there is one.
+    for set in &sets {
+        let now = set["evaluatedAt"].as_u64().unwrap();
+        for (name, want) in set.get("batches").and_then(Value::as_object).into_iter().flatten() {
+            let file = std::fs::read(dir.join("proofs").join(format!("{name}.pofb"))).unwrap();
+            let audience = want["audience"].as_str().unwrap();
+            let r = verify_batch(&file, &Context { audience, anchors: &all, revoked_secrets: &revoked, now, zk: &zk, policy: Default::default(), seen: &[] });
+            let got = serde_json::to_value(&r.verdict).unwrap();
+            println!("{name:<18} {} {}", got["kind"], got.get("totalZatoshi").or(got.get("member")).unwrap_or(&Value::Null));
+            for key in ["kind", "totalZatoshi", "member"] {
+                if want.get(key).is_some() && got.get(key) != want.get(key) {
+                    failures.push(format!("{name}: {key} is {:?}, want {:?}", got.get(key), want.get(key)));
+                }
+            }
+        }
+    }
+
     // base64url text input and garbage
     let valid = std::fs::read(dir.join("proofs/valid.pof")).unwrap();
     let text = pof_core::to_base64url(&valid);
-    let r = verify(text.as_bytes(), &Context { audience: "pof-credit:usdc-pool-1", anchors: &anchors, revoked_secrets: &revoked, now, zk: &zk });
+    let r = verify(text.as_bytes(), &Context { audience: "pof-credit:usdc-pool-1", anchors: &anchors, revoked_secrets: &revoked, now, zk: &zk, policy: Default::default(), seen: &[] });
     assert_eq!(serde_json::to_value(&r.verdict).unwrap()["kind"], "Valid");
-    let r = verify(&text.as_bytes()[..900], &Context { audience: "x", anchors: &anchors, revoked_secrets: &revoked, now, zk: &zk });
+    let r = verify(&text.as_bytes()[..900], &Context { audience: "x", anchors: &anchors, revoked_secrets: &revoked, now, zk: &zk, policy: Default::default(), seen: &[] });
     assert_eq!(serde_json::to_value(&r.verdict).unwrap()["kind"], "Malformed");
     // expiry is exclusive: at expires_at the proof is already expired, as pof-gate and pof-credit hold
     let expires = pof_core::decode(&valid).unwrap().0.expires_at;
     for (now, want) in [(expires - 1, "Valid"), (expires, "Expired")] {
-        let r = verify(&valid, &Context { audience: "pof-credit:usdc-pool-1", anchors: &anchors, revoked_secrets: &revoked, now, zk: &zk });
+        let r = verify(&valid, &Context { audience: "pof-credit:usdc-pool-1", anchors: &anchors, revoked_secrets: &revoked, now, zk: &zk, policy: Default::default(), seen: &[] });
         assert_eq!(serde_json::to_value(&r.verdict).unwrap()["kind"], want, "now = expires_at - {}", expires - now);
     }
     assert!(failures.is_empty(), "{failures:#?}");
