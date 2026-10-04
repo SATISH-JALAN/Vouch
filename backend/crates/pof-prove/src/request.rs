@@ -26,6 +26,17 @@ pub struct ProofRequest {
     /// "solana" when the proof must be bound to the holder's Solana account (on-chain audiences).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bind: Option<String>,
+    /// "proof" (the default), "exit" (a certificate for coins about to be sent) or "reserves" (a
+    /// batch summing every usable note).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// The verifier's period. When set, the proof is made in that scope, so the verifier sees the
+    /// same notes used twice in it. When absent, the proof gets a scope of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub epoch: Option<u64>,
+    /// The block the notes must be unmoved since (a checkpoint, a multiple of 1,000).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dormant_since: Option<u32>,
 }
 
 mod dec {
@@ -111,19 +122,39 @@ impl ProofRequest {
         if self.bind.as_deref().is_some_and(|b| b != "solana") {
             return Err(RequestError::Invalid("unknown binding"));
         }
+        if self.kind.as_deref().is_some_and(|k| !matches!(k, "proof" | "exit" | "reserves")) {
+            return Err(RequestError::Invalid("unknown request kind"));
+        }
+        if self.epoch.is_some_and(|e| e > MAX_RESPOND_BY) {
+            return Err(RequestError::Invalid("malformed period"));
+        }
+        if self.dormant_since.is_some_and(|h| h == 0 || !h.is_multiple_of(1_000)) {
+            return Err(RequestError::Invalid("the unmoved-since block must be a multiple of 1,000"));
+        }
         Ok(())
     }
 
     /// The claim as an English sentence, identical to the web review screen.
     pub fn sentence(&self) -> String {
+        let what = match self.kind.as_deref() {
+            Some("reserves") => format!("prove your reserves total at least {} ZEC", zec(self.zatoshi)),
+            Some("exit") => format!("certify the at least {} ZEC you are about to send them", zec(self.zatoshi)),
+            _ => format!("prove you hold at least {} ZEC", zec(self.zatoshi)),
+        };
+        let since = self.dormant_since.map(|h| format!(", in notes unmoved since block {}", zec_int(h as u64))).unwrap_or_default();
+        let period = if self.epoch.is_some() { " They will see if you use the same coins with them again in this period." } else { "" };
         format!(
-            "{} asks you to prove you hold at least {} ZEC. Valid {} day{} after you generate it.",
+            "{} asks you to {what}{since}. Valid {} day{} after you generate it.{period}",
             self.audience.trim(),
-            zec(self.zatoshi),
             self.expiry_days,
             if self.expiry_days == 1 { "" } else { "s" }
         )
     }
+}
+
+/// A whole number with thousands separators.
+fn zec_int(n: u64) -> String {
+    zec(n * 100_000_000)
 }
 
 pub fn zec(z: u64) -> String {
@@ -168,7 +199,19 @@ mod tests {
 
     #[test]
     fn serialises_without_absent_fields() {
-        let r = ProofRequest { v: 1, id: None, claim: "HoldsAtLeast".into(), zatoshi: 12_500_000, audience: "acme".into(), expiry_days: 7, respond_by: None, bind: None };
+        let r = ProofRequest {
+            v: 1,
+            id: None,
+            claim: "HoldsAtLeast".into(),
+            zatoshi: 12_500_000,
+            audience: "acme".into(),
+            expiry_days: 7,
+            respond_by: None,
+            bind: None,
+            kind: None,
+            epoch: None,
+            dormant_since: None,
+        };
         let json = serde_json::to_string(&r).unwrap();
         assert_eq!(json, r#"{"v":1,"claim":"HoldsAtLeast","zatoshi":"12500000","audience":"acme","expiryDays":7}"#);
         assert_eq!(ProofRequest::decode(&pof_core::to_base64url(json.as_bytes())).unwrap(), r);

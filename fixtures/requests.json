@@ -456,6 +456,90 @@
       "name": "link text around the value",
       "ok": false,
       "r": "https://vouch.example/prove?r=eyJ2IjoxLCJjbGFpbSI6IkhvbGRzQXRMZWFzdCIsInphdG9zaGkiOiI1MDAwMDAwMDAwMCIsImF1ZGllbmNlIjoicG9mLWNyZWRpdDp1c2RjLXBvb2wtMSIsImV4cGlyeURheXMiOjd9"
+    },
+    {
+      "name": "exit with period and unmoved-since",
+      "ok": true,
+      "json": "{\"v\":1,\"claim\":\"HoldsAtLeast\",\"zatoshi\":\"100000000\",\"audience\":\"rail:near-intents\",\"expiryDays\":7,\"kind\":\"exit\",\"epoch\":202610,\"dormantSince\":4410000}",
+      "r": "eyJ2IjoxLCJjbGFpbSI6IkhvbGRzQXRMZWFzdCIsInphdG9zaGkiOiIxMDAwMDAwMDAiLCJhdWRpZW5jZSI6InJhaWw6bmVhci1pbnRlbnRzIiwiZXhwaXJ5RGF5cyI6Nywia2luZCI6ImV4aXQiLCJlcG9jaCI6MjAyNjEwLCJkb3JtYW50U2luY2UiOjQ0MTAwMDB9"
+    },
+    {
+      "name": "reserves kind",
+      "ok": true,
+      "json": "{\"v\":1,\"claim\":\"HoldsAtLeast\",\"zatoshi\":\"100000000\",\"audience\":\"rail:near-intents\",\"expiryDays\":7,\"kind\":\"reserves\",\"epoch\":7}",
+      "r": "eyJ2IjoxLCJjbGFpbSI6IkhvbGRzQXRMZWFzdCIsInphdG9zaGkiOiIxMDAwMDAwMDAiLCJhdWRpZW5jZSI6InJhaWw6bmVhci1pbnRlbnRzIiwiZXhwaXJ5RGF5cyI6Nywia2luZCI6InJlc2VydmVzIiwiZXBvY2giOjd9"
+    },
+    {
+      "name": "period zero",
+      "ok": true,
+      "json": "{\"v\":1,\"claim\":\"HoldsAtLeast\",\"zatoshi\":\"100000000\",\"audience\":\"rail:near-intents\",\"expiryDays\":7,\"epoch\":0}",
+      "r": "eyJ2IjoxLCJjbGFpbSI6IkhvbGRzQXRMZWFzdCIsInphdG9zaGkiOiIxMDAwMDAwMDAiLCJhdWRpZW5jZSI6InJhaWw6bmVhci1pbnRlbnRzIiwiZXhwaXJ5RGF5cyI6NywiZXBvY2giOjB9"
+    },
+    {
+      "name": "period at 2^53-1",
+      "ok": true,
+      "json": "{\"v\":1,\"claim\":\"HoldsAtLeast\",\"zatoshi\":\"100000000\",\"audience\":\"rail:near-intents\",\"expiryDays\":7,\"epoch\":9007199254740991}",
+      "r": "eyJ2IjoxLCJjbGFpbSI6IkhvbGRzQXRMZWFzdCIsInphdG9zaGkiOiIxMDAwMDAwMDAiLCJhdWRpZW5jZSI6InJhaWw6bmVhci1pbnRlbnRzIiwiZXhwaXJ5RGF5cyI6NywiZXBvY2giOjkwMDcxOTkyNTQ3NDA5OTF9"
+    },
+    {
+      "name": "period above 2^53-1",
+      "ok": false,
+      "json": "{\"v\":1,\"claim\":\"HoldsAtLeast\",\"zatoshi\":\"100000000\",\"audience\":\"rail:near-intents\",\"expiryDays\":7,\"epoch\":9007199254740992}",
+      "r": "eyJ2IjoxLCJjbGFpbSI6IkhvbGRzQXRMZWFzdCIsInphdG9zaGkiOiIxMDAwMDAwMDAiLCJhdWRpZW5jZSI6InJhaWw6bmVhci1pbnRlbnRzIiwiZXhwaXJ5RGF5cyI6NywiZXBvY2giOjkwMDcxOTkyNTQ3NDA5OTJ9"
+    },
+    {
+      "name": "period negative",
+      "ok": false,
+      "json": "{\"v\":1,\"claim\":\"HoldsAtLeast\",\"zatoshi\":\"100000000\",\"audience\":\"rail:near-intents\",\"expiryDays\":7,\"epoch\":-1}",
+      "r": "eyJ2IjoxLCJjbGFpbSI6IkhvbGRzQXRMZWFzdCIsInphdG9zaGkiOiIxMDAwMDAwMDAiLCJhdWRpZW5jZSI6InJhaWw6bmVhci1pbnRlbnRzIiwiZXhwaXJ5RGF5cyI6NywiZXBvY2giOi0xfQ"
+    },
+    {
+      "name": "period fractional",
+      "ok": false,
+      "json": "{\"v\":1,\"claim\":\"HoldsAtLeast\",\"zatoshi\":\"100000000\",\"audience\":\"rail:near-intents\",\"expiryDays\":7,\"epoch\":1.5}",
+      "r": "eyJ2IjoxLCJjbGFpbSI6IkhvbGRzQXRMZWFzdCIsInphdG9zaGkiOiIxMDAwMDAwMDAiLCJhdWRpZW5jZSI6InJhaWw6bmVhci1pbnRlbnRzIiwiZXhwaXJ5RGF5cyI6NywiZXBvY2giOjEuNX0"
+    },
+    {
+      "name": "period as a string",
+      "ok": false,
+      "json": "{\"v\":1,\"claim\":\"HoldsAtLeast\",\"zatoshi\":\"100000000\",\"audience\":\"rail:near-intents\",\"expiryDays\":7,\"epoch\":\"7\"}",
+      "r": "eyJ2IjoxLCJjbGFpbSI6IkhvbGRzQXRMZWFzdCIsInphdG9zaGkiOiIxMDAwMDAwMDAiLCJhdWRpZW5jZSI6InJhaWw6bmVhci1pbnRlbnRzIiwiZXhwaXJ5RGF5cyI6NywiZXBvY2giOiI3In0"
+    },
+    {
+      "name": "kind unknown",
+      "ok": false,
+      "json": "{\"v\":1,\"claim\":\"HoldsAtLeast\",\"zatoshi\":\"100000000\",\"audience\":\"rail:near-intents\",\"expiryDays\":7,\"kind\":\"loan\"}",
+      "r": "eyJ2IjoxLCJjbGFpbSI6IkhvbGRzQXRMZWFzdCIsInphdG9zaGkiOiIxMDAwMDAwMDAiLCJhdWRpZW5jZSI6InJhaWw6bmVhci1pbnRlbnRzIiwiZXhwaXJ5RGF5cyI6Nywia2luZCI6ImxvYW4ifQ"
+    },
+    {
+      "name": "kind as a number",
+      "ok": false,
+      "json": "{\"v\":1,\"claim\":\"HoldsAtLeast\",\"zatoshi\":\"100000000\",\"audience\":\"rail:near-intents\",\"expiryDays\":7,\"kind\":1}",
+      "r": "eyJ2IjoxLCJjbGFpbSI6IkhvbGRzQXRMZWFzdCIsInphdG9zaGkiOiIxMDAwMDAwMDAiLCJhdWRpZW5jZSI6InJhaWw6bmVhci1pbnRlbnRzIiwiZXhwaXJ5RGF5cyI6Nywia2luZCI6MX0"
+    },
+    {
+      "name": "unmoved-since not a checkpoint",
+      "ok": false,
+      "json": "{\"v\":1,\"claim\":\"HoldsAtLeast\",\"zatoshi\":\"100000000\",\"audience\":\"rail:near-intents\",\"expiryDays\":7,\"dormantSince\":4410001}",
+      "r": "eyJ2IjoxLCJjbGFpbSI6IkhvbGRzQXRMZWFzdCIsInphdG9zaGkiOiIxMDAwMDAwMDAiLCJhdWRpZW5jZSI6InJhaWw6bmVhci1pbnRlbnRzIiwiZXhwaXJ5RGF5cyI6NywiZG9ybWFudFNpbmNlIjo0NDEwMDAxfQ"
+    },
+    {
+      "name": "unmoved-since zero",
+      "ok": false,
+      "json": "{\"v\":1,\"claim\":\"HoldsAtLeast\",\"zatoshi\":\"100000000\",\"audience\":\"rail:near-intents\",\"expiryDays\":7,\"dormantSince\":0}",
+      "r": "eyJ2IjoxLCJjbGFpbSI6IkhvbGRzQXRMZWFzdCIsInphdG9zaGkiOiIxMDAwMDAwMDAiLCJhdWRpZW5jZSI6InJhaWw6bmVhci1pbnRlbnRzIiwiZXhwaXJ5RGF5cyI6NywiZG9ybWFudFNpbmNlIjowfQ"
+    },
+    {
+      "name": "unmoved-since above u32",
+      "ok": false,
+      "json": "{\"v\":1,\"claim\":\"HoldsAtLeast\",\"zatoshi\":\"100000000\",\"audience\":\"rail:near-intents\",\"expiryDays\":7,\"dormantSince\":4294968000}",
+      "r": "eyJ2IjoxLCJjbGFpbSI6IkhvbGRzQXRMZWFzdCIsInphdG9zaGkiOiIxMDAwMDAwMDAiLCJhdWRpZW5jZSI6InJhaWw6bmVhci1pbnRlbnRzIiwiZXhwaXJ5RGF5cyI6NywiZG9ybWFudFNpbmNlIjo0Mjk0OTY4MDAwfQ"
+    },
+    {
+      "name": "unmoved-since null is absent",
+      "ok": true,
+      "json": "{\"v\":1,\"claim\":\"HoldsAtLeast\",\"zatoshi\":\"100000000\",\"audience\":\"rail:near-intents\",\"expiryDays\":7,\"dormantSince\":null}",
+      "r": "eyJ2IjoxLCJjbGFpbSI6IkhvbGRzQXRMZWFzdCIsInphdG9zaGkiOiIxMDAwMDAwMDAiLCJhdWRpZW5jZSI6InJhaWw6bmVhci1pbnRlbnRzIiwiZXhwaXJ5RGF5cyI6NywiZG9ybWFudFNpbmNlIjpudWxsfQ"
     }
   ]
 }
