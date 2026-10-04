@@ -50,12 +50,29 @@ for (const meta of sets) {
   for (const [name, want] of Object.entries(meta.expected)) {
     const bytes = readFileSync(new URL(`proofs/${name}.pof`, dir))
     t = performance.now()
-    const r = JSON.parse(wasm.verify(bytes, want.audience, BigInt(meta.evaluatedAt), anchors, revoked))
+    // a vector may name what its verifier requires (freshness, dormancy), as the native test reads it
+    const r = JSON.parse(
+      wasm.verify(bytes, want.audience, BigInt(meta.evaluatedAt), anchors, revoked, want.policy ? JSON.stringify(want.policy) : undefined, want.seen ? JSON.stringify(want.seen) : undefined),
+    )
     const ms = (performance.now() - t).toFixed(0)
     const bad = conforms(r, schema)
     const ok = r.verdict.kind === want.verdict && (!want.network || r.anchor?.network === want.network) && !bad
     if (!ok) fail++
-    console.log(`${ok ? 'ok  ' : 'FAIL'} ${name.padEnd(18)} ${r.verdict.kind.padEnd(15)} ${want.network ? `${r.anchor?.network ?? '-'} ` : ''}${ms} ms${bad ? ` · schema: ${bad}` : ''}`)
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${name.padEnd(18)} ${r.verdict.kind.padEnd(20)} ${want.network ? `${r.anchor?.network ?? '-'} ` : ''}${ms} ms${bad ? ` · schema: ${bad}` : ''}`)
+  }
+}
+// reserves batches: the summed verdict and the member at fault, as the native test checks them;
+// every member's result must match the schema too
+for (const meta of sets) {
+  for (const [name, want] of Object.entries(meta.batches ?? {})) {
+    const bytes = readFileSync(new URL(`proofs/${name}.pofb`, dir))
+    t = performance.now()
+    const r = JSON.parse(wasm.verifyBatch(bytes, want.audience, BigInt(meta.evaluatedAt), anchors, revoked))
+    const ms = (performance.now() - t).toFixed(0)
+    const bad = r.members.map((m) => conforms(m, schema)).find(Boolean)
+    const ok = ['kind', 'totalZatoshi', 'member'].every((k) => !(k in want) || r.verdict[k] === want[k]) && !bad
+    if (!ok) fail++
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${name.padEnd(18)} ${r.verdict.kind.padEnd(20)} ${r.verdict.totalZatoshi ?? `member ${r.verdict.member}`} · ${ms} ms${bad ? ` · schema: ${bad}` : ''}`)
   }
 }
 // a file that never parses still returns a result in the published shape
