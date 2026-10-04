@@ -25,6 +25,9 @@ export function revealRows(env: Envelope, checks: Check[], network?: string) {
     learn: [
       { label: 'The claim', value: `${p.before} ${p.value}${p.after ? ` ${p.after}` : ''}${established ? '' : ' (not established)'}` },
       { label: 'As of', value: `block ${formatInt(env.anchor.height)}` },
+      ...(env.anchor.ncHeight < env.anchor.height
+        ? [{ label: 'Unmoved since', value: `block ${formatInt(env.anchor.ncHeight)}: the notes were in the chain then and have not been spent since` }]
+        : []),
       { label: 'Made for', value: AUDIENCE[audience] },
       ...(isUnbound(env.binding) ? [] : [{ label: 'Bound to', value: `Solana account ${toBase58(fromHex(env.binding))}` }]),
       { label: 'Valid until', value: formatDate(env.expiresAt) },

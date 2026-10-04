@@ -48,6 +48,17 @@ export function present(v: V, now: number): Presentation {
       return invalid('WRONG AUDIENCE', 'This proof names a different verifier. Passing a proof on is visible.')
     case 'AnchorNotFound':
       return invalid('ANCHOR NOT FOUND', 'The tree root it claims does not exist at that block height.')
+    case 'AnchorTooOld':
+      return invalid('ANCHOR TOO OLD', `It shows the notes unspent at block ${formatInt(v.anchorHeight)}, which is older than this verifier accepts. Ask for a fresh proof.`)
+    case 'NotDormantLongEnough':
+      return invalid(
+        'NOT UNMOVED LONG ENOUGH',
+        `It shows the notes unmoved since block ${formatInt(v.dormantSince)}; this verifier requires block ${formatInt(v.required)} or earlier.`,
+      )
+    case 'WrongScope':
+      return invalid('WRONG PERIOD', `Made for you, but for period ${v.epoch}; you asked for period ${v.required}. Ask the holder for a proof made for your request.`)
+    case 'AlreadyUsed':
+      return invalid('ALREADY USED', 'The proof is genuine, but these coins were already used with you in this period.')
     case 'ProofInvalid':
       return invalid('PROOF INVALID', v.detail)
     case 'Malformed':
@@ -134,7 +145,7 @@ export function Verdict({ result, audienceId, className }: { result: Verificatio
 
           {v.kind === 'Valid' && env ? (
             <div className="mt-5 space-y-2">
-              <ClaimLine claim={v.claim} anchorHeight={v.anchorHeight} network={result.anchor?.network} />
+              <ClaimLine claim={v.claim} anchorHeight={v.anchorHeight} dormantSince={v.dormantSince} network={result.anchor?.network} />
               <p className="t-data text-ink-2">
                 Made for you · valid until {formatDate(env.expiresAt)} · {passed} of {result.checks.length} checks passed
                 {result.anchor?.network === 'demo' && ' · demo anchor'}
@@ -170,7 +181,13 @@ export function Verdict({ result, audienceId, className }: { result: Verificatio
             <dl className="t-data-sm mt-6 grid gap-x-8 gap-y-2 border-t border-border pt-4 text-ink-3 sm:grid-cols-[auto_1fr]">
               <dt>ANCHOR</dt>
               <dd className="text-ink-2">
-                block {formatInt(env.anchor.height)}
+                {env.anchor.ncHeight < env.anchor.height ? (
+                  <>
+                    notes in the chain at block {formatInt(env.anchor.ncHeight)}, unspent at block {formatInt(env.anchor.height)}
+                  </>
+                ) : (
+                  <>block {formatInt(env.anchor.height)}</>
+                )}
                 {result.anchor && ` (${result.anchor.network})`} · notes <Hash value={env.anchor.ncRoot} head={8} tail={6} label="note-commitment root" scramble /> ·
                 nullifiers <Hash value={env.anchor.nfRoot} head={8} tail={6} label="nullifier-set root" scramble />
               </dd>
