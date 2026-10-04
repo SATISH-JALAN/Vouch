@@ -16,11 +16,19 @@ use voting_crypto_deps::pasta_curves::pallas;
 
 const ZEC: u64 = 100_000_000;
 
+/// The two heights of the dormancy tests: the tree at H0 holds notes 0 and 1 (and the note
+/// spent later), the spent set at H1 is the current one.
+const H0: u32 = 3_480_000;
+const H1: u32 = 3_491_040;
+
 struct World {
     sk: SpendingKey,
     notes: Vec<(Note, u32)>,
     tree: NoteTree,
+    /// The tree at H0: every leaf before holder note 2.
+    old_tree: NoteTree,
     imt: DenseImtProvider,
+    /// Owned, in the tree at H0, spent before H1.
     spent_note: (Note, u32),
 }
 
@@ -46,20 +54,25 @@ fn world() -> World {
         leaves.push(ExtractedNoteCommitment::from(note(&stranger, i + 1, &mut rng).commitment()).to_bytes());
         spent_nfs.push(pallas::Base::random(&mut rng));
     }
-    let mut notes = Vec::new();
-    for v in [2 * ZEC, 3 * ZEC, ZEC + ZEC / 2] {
-        let n = note(&fvk, v, &mut rng);
-        notes.push((n, leaves.len() as u32));
-        leaves.push(ExtractedNoteCommitment::from(n.commitment()).to_bytes());
-    }
     let spent = note(&fvk, 10 * ZEC, &mut rng);
     let spent_pos = leaves.len() as u32;
     leaves.push(ExtractedNoteCommitment::from(spent.commitment()).to_bytes());
     spent_nfs.push(spent.nullifier(&fvk).inner());
+    let mut notes = Vec::new();
+    let mut old_size = 0;
+    for (i, v) in [2 * ZEC, 3 * ZEC, ZEC + ZEC / 2].into_iter().enumerate() {
+        if i == 2 {
+            old_size = leaves.len();
+        }
+        let n = note(&fvk, v, &mut rng);
+        notes.push((n, leaves.len() as u32));
+        leaves.push(ExtractedNoteCommitment::from(n.commitment()).to_bytes());
+    }
     World {
         sk,
         notes,
         tree: NoteTree::from_cmx(&leaves).unwrap(),
+        old_tree: NoteTree::from_cmx(&leaves[..old_size]).unwrap(),
         imt: DenseImtProvider::from_nullifiers(&spent_nfs),
         spent_note: (spent, spent_pos),
     }
@@ -67,10 +80,13 @@ fn world() -> World {
 
 fn envelope(w: &World, zatoshi: u64) -> Envelope {
     Envelope {
+        version: pof_core::FORMAT_V1,
+        circuit: pof_core::CIRCUIT_THRESHOLD,
         claim: Claim::HoldsAtLeast { zatoshi },
         audience: audience_hash("pof-credit:usdc-pool-1"),
+        epoch: 0,
         binding: [0; 32],
-        anchor: Anchor { height: 3_491_040, nc_root: w.tree.root(), nf_root: base_to_bytes(&w.imt.root()) },
+        anchor: Anchor::at(H1, w.tree.root(), base_to_bytes(&w.imt.root())),
         issued_at: 1_790_035_200,
         expires_at: 1_790_640_000,
         revocation: revocation_tag(&[42; 32]),
@@ -78,14 +94,87 @@ fn envelope(w: &World, zatoshi: u64) -> Envelope {
     }
 }
 
-fn held(w: &World, which: &[usize]) -> Vec<HeldNote> {
+/// Version 2: the tree at H0, the spent set at H1, in `epoch`.
+fn envelope_since(w: &World, zatoshi: u64, epoch: u64) -> Envelope {
+    let mut e = envelope(w, zatoshi);
+    e.version = pof_core::FORMAT_VERSION;
+    e.epoch = epoch;
+    e.anchor = Anchor { height: H1, nc_root: w.old_tree.root(), nf_root: base_to_bytes(&w.imt.root()), nc_height: H0 };
+    e
+}
+
+fn held_in(tree: &NoteTree, w: &World, which: &[usize]) -> Vec<HeldNote> {
     which
         .iter()
         .map(|&i| {
             let (n, pos) = w.notes[i];
-            HeldNote { note: n, merkle_path: w.tree.path(pos).unwrap(), scope: Scope::External }
+            HeldNote { note: n, merkle_path: tree.path(pos).unwrap(), scope: Scope::External }
         })
         .collect()
+}
+
+fn held(w: &World, which: &[usize]) -> Vec<HeldNote> {
+    held_in(&w.tree, w, which)
+}
+
+#[test]
+#[ignore = "real proofs"]
+fn dormant_since_an_earlier_block() {
+    let w = world();
+    let v = Verifier::new().unwrap();
+
+    let mut env = envelope_since(&w, 5 * ZEC, 7);
+    prove_holding(&w.sk, held_in(&w.old_tree, &w, &[0, 1]), &w.imt, &mut env).unwrap();
+    v.verify_holding(&env).expect("notes in the tree at H0, unspent at H1");
+    assert_eq!(env.dormant_since(), Some(H0));
+    let (decoded, _) = pof_core::decode(&pof_core::encode(&env)).unwrap();
+    v.verify_holding(&decoded).expect("survives the wire");
+
+    // Every statement field is held by the signature, including the version 2 ones.
+    for (what, edit) in [
+        ("the note-commitment height", Box::new(|e: &mut Envelope| e.anchor.nc_height -= 1) as Box<dyn Fn(&mut Envelope)>),
+        ("the spent-set height", Box::new(|e: &mut Envelope| e.anchor.height += 1)),
+        ("the epoch", Box::new(|e: &mut Envelope| e.epoch += 1)),
+        ("the binding", Box::new(|e: &mut Envelope| e.binding[0] ^= 1)),
+        ("the revocation tag", Box::new(|e: &mut Envelope| e.revocation[0] ^= 1)),
+    ] {
+        let mut e = env.clone();
+        edit(&mut e);
+        assert_eq!(v.verify_holding(&e), Err(ZkError::BadSignature), "{what}");
+    }
+
+    // A note that arrived after H0 has no path in the tree at H0, and its current path does
+    // not lead to the H0 root.
+    assert!(w.old_tree.path(w.notes[2].1).is_none());
+    let mut env = envelope_since(&w, ZEC, 7);
+    assert!(matches!(prove_holding(&w.sk, held(&w, &[2]), &w.imt, &mut env), Err(ProveError::AnchorMismatch)));
+
+    // A note that was there at H0 but moved before H1.
+    let (n, pos) = w.spent_note;
+    let moved = vec![HeldNote { note: n, merkle_path: w.old_tree.path(pos).unwrap(), scope: Scope::External }];
+    let mut env = envelope_since(&w, ZEC, 7);
+    assert!(matches!(prove_holding(&w.sk, moved, &w.imt, &mut env), Err(ProveError::Spent)));
+}
+
+/// Version 2 derives the nullifier domain from the scope: the same notes give the same tags in
+/// one scope (so the verifier sees reuse) and unrelated tags in another.
+#[test]
+#[ignore = "real proofs"]
+fn tags_repeat_inside_a_scope_only() {
+    let w = world();
+    let v = Verifier::new().unwrap();
+    let prove = |epoch: u64| {
+        let mut e = envelope_since(&w, 5 * ZEC, epoch);
+        prove_holding(&w.sk, held_in(&w.old_tree, &w, &[0, 1]), &w.imt, &mut e).unwrap();
+        v.verify_holding(&e).unwrap();
+        e
+    };
+    let (a, b, c) = (prove(7), prove(7), prove(8));
+    let shared = |x: &Envelope, y: &Envelope| pof_zk::tags(x).iter().filter(|t| pof_zk::tags(y).contains(t)).count();
+    assert_eq!(shared(&a, &b), 2, "both real notes repeat in the same scope; padding does not");
+    assert_eq!(shared(&a, &c), 0, "another epoch shares nothing");
+    assert_eq!(pof_zk::scope_key(&a), pof_zk::scope_key(&b));
+    assert_ne!(pof_zk::scope_key(&a), pof_zk::scope_key(&c));
 }
 
 #[test]
@@ -196,4 +285,35 @@ fn one_note_cannot_be_counted_twice() {
     let sig = SpendAuthorizingKey::from(&w.sk).randomize(&alpha).sign(rng, &signing_message(&env));
     env.evidence.signature = <[u8; 64]>::from(&sig);
     assert_eq!(v.verify_holding(&env), Err(ZkError::DuplicateNote));
+}
+
+/// Circuit 2: an exit certificate publishes the real nullifiers of the notes it proves, so the
+/// deposit can be matched to exactly them; editing one breaks the holder's signature.
+#[test]
+#[ignore = "real proofs"]
+fn exit_certificate_names_its_notes() {
+    let w = world();
+    let v = Verifier::new().unwrap();
+    let mut env = envelope_since(&w, 5 * ZEC, 7);
+    env.circuit = pof_core::CIRCUIT_REVEAL;
+    env.binding = pof_core::intent_binding("near-intents:quote-123");
+    prove_holding(&w.sk, held_in(&w.old_tree, &w, &[0, 1]), &w.imt, &mut env).unwrap();
+    assert_eq!(env.evidence.public_inputs.len(), pof_zk::CARRIED_INPUTS_REVEAL);
+    v.verify_holding(&env).expect("exit certificate verifies");
+    let (decoded, _) = pof_core::decode(&pof_core::encode(&env)).unwrap();
+    v.verify_holding(&decoded).expect("survives the wire");
+
+    let fvk = FullViewingKey::from(&w.sk);
+    let revealed = pof_zk::revealed_nullifiers(&env).expect("reveal = 1");
+    for i in [0, 1] {
+        assert!(revealed.contains(&w.notes[i].0.nullifier(&fvk).to_bytes()), "note {i} is named");
+    }
+    assert!(!revealed.contains(&w.notes[2].0.nullifier(&fvk).to_bytes()), "an unproven note is not");
+
+    let mut e = env.clone();
+    e.evidence.public_inputs[10][0] ^= 1;
+    assert!(v.verify_holding(&e).is_err(), "a swapped revealed nullifier");
+    let mut e = env.clone();
+    e.circuit = pof_core::CIRCUIT_THRESHOLD;
+    assert!(v.verify_holding(&e).is_err(), "relabelled as a plain proof");
 }
