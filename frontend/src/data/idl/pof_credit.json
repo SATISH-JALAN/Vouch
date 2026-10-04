@@ -308,6 +308,176 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "refresh_line",
+      "docs": [
+        "Present a new proof for an open line. The receipt must meet the pool's terms like the one",
+        "that opened the line, and its anchor must be no older than the line's last."
+      ],
+      "discriminator": [
+        253,
+        203,
+        218,
+        170,
+        54,
+        222,
+        187,
+        129
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.mint",
+                "account": "Pool"
+              }
+            ]
+          },
+          "relations": [
+            "line"
+          ]
+        },
+        {
+          "name": "line",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  110,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "line.opened_against",
+                "account": "CreditLine"
+              },
+              {
+                "kind": "account",
+                "path": "borrower"
+              }
+            ]
+          }
+        },
+        {
+          "name": "receipt",
+          "writable": true
+        },
+        {
+          "name": "borrower",
+          "signer": true,
+          "relations": [
+            "line"
+          ]
+        },
+        {
+          "name": "consumer",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  115,
+                  117,
+                  109,
+                  101,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "consumer_program",
+          "docs": [
+            "This program, named to pof-gate as the consumer."
+          ],
+          "address": "J6ewFZAzcTkbVsYNBrcZvzdBtTTUK5UrpqCg9jiNyra1"
+        },
+        {
+          "name": "gate_program",
+          "address": "A6WmRTgEAHC9GHstaj9oD8woVNRw9jgu31bpKVREXn8C"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "set_freshness",
+      "docs": [
+        "The pool's authority sets how long a proof keeps a line drawable, and the oldest Zcash",
+        "anchor the pool accepts when a line is opened or refreshed."
+      ],
+      "discriminator": [
+        85,
+        217,
+        212,
+        155,
+        134,
+        19,
+        53,
+        242
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.mint",
+                "account": "Pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "pool"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "fresh_secs",
+          "type": "i64"
+        },
+        {
+          "name": "min_anchor_height",
+          "type": "u32"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -340,6 +510,19 @@
   ],
   "events": [
     {
+      "name": "FreshnessChanged",
+      "discriminator": [
+        87,
+        115,
+        74,
+        12,
+        232,
+        63,
+        70,
+        123
+      ]
+    },
+    {
       "name": "LineOpened",
       "discriminator": [
         200,
@@ -350,6 +533,19 @@
         167,
         83,
         72
+      ]
+    },
+    {
+      "name": "LineRefreshed",
+      "discriminator": [
+        29,
+        152,
+        131,
+        99,
+        112,
+        6,
+        107,
+        242
       ]
     }
   ],
@@ -388,6 +584,16 @@
       "code": 6006,
       "name": "OverLimit",
       "msg": "draw exceeds the line's limit"
+    },
+    {
+      "code": 6007,
+      "name": "AnchorTooOld",
+      "msg": "the proof is older than this pool accepts: present a newer one"
+    },
+    {
+      "code": 6008,
+      "name": "NeedsFreshProof",
+      "msg": "the line's latest proof is no longer fresh: refresh it with a new proof"
     }
   ],
   "types": [
@@ -508,6 +714,9 @@
           },
           {
             "name": "anchor_height",
+            "docs": [
+              "The anchor of the latest proof: the one that opened the line, or the last refresh."
+            ],
             "type": "u32"
           },
           {
@@ -517,6 +726,49 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "fresh_until",
+            "docs": [
+              "Draws are refused from this time on, until a refresh."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "refreshed_against",
+            "docs": [
+              "The receipt subject of the latest proof."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "refreshes",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FreshnessChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "fresh_secs",
+            "type": "i64"
+          },
+          {
+            "name": "min_anchor_height",
+            "type": "u32"
           }
         ]
       }
@@ -546,6 +798,35 @@
                 32
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LineRefreshed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "line",
+            "type": "pubkey"
+          },
+          {
+            "name": "against",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "anchor_height",
+            "type": "u32"
+          },
+          {
+            "name": "fresh_until",
+            "type": "i64"
           }
         ]
       }
@@ -593,6 +874,20 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "fresh_secs",
+            "docs": [
+              "How long a proof keeps a line drawable, in seconds."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "min_anchor_height",
+            "docs": [
+              "The oldest Zcash anchor height accepted when a line is opened or refreshed."
+            ],
+            "type": "u32"
           }
         ]
       }
