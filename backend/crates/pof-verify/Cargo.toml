@@ -6,8 +6,10 @@ license = "MIT OR Apache-2.0"
 description = "Vouch verifier: six checks, cheapest first, one typed verdict. No network, no filesystem in the library."
 
 [features]
-default = ["cli"]
+default = ["cli", "batch"]
 cli = ["dep:clap", "dep:anyhow"]
+# Reserves batches verified with one batched Halo2 check (native only; see pof-zk).
+batch = ["pof-zk/batch"]
 
 [[bin]]
 name = "pof-verify"
