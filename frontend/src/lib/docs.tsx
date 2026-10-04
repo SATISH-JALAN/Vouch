@@ -72,9 +72,9 @@ const REPO = LINKS.repo ?? 'https://github.com/SATISH-JALAN/Vouch'
 
 const format: Doc = {
   slug: 'format',
-  eyebrow: 'SPECIFICATION · VERSION 1',
+  eyebrow: 'SPECIFICATION · VERSIONS 1 AND 2',
   title: 'The proof format',
-  lede: 'A .pof file carries one claim, for one audience, bound to one context, anchored to one block, with an expiry and a revocation tag. This page is written so that someone else can implement a verifier against it.',
+  lede: 'A .pof file carries one claim, for one audience and period, bound to one context, anchored to the chain, with an expiry and a revocation tag. Version 2 adds “unmoved since block H”, scopes in which reuse is visible, and exit certificates. This page is written so that someone else can implement a verifier against it.',
   sections: [
     {
       id: 'principles',
@@ -106,7 +106,7 @@ const format: Doc = {
             proof is about 11,900 bytes.
           </p>
           <Code>{` magic      "POF1"                 4 bytes   50 4F 46 31
- version    u16, little-endian     2 bytes   01 00
+ version    u16, little-endian     2 bytes   01 00 or 02 00
  body       postcard(Body)         variable
  checksum   blake2b-256(body)      32 bytes`}</Code>
           <p>
@@ -122,6 +122,25 @@ const format: Doc = {
       body: (
         <>
           <p>Postcard encoding: integers as LEB128 varints, fixed arrays as raw bytes, vectors as a varint length and elements, enums as a varint tag.</p>
+          <p>
+            <strong>Version 2</strong> (written by current provers):
+          </p>
+          <Code>{`circuit      u8         1 = threshold · 2 = threshold + revealed nullifiers (exit certificates)
+claim        enum Claim                      (varint tag + fields)
+audience     [u8; 32]   blake2b-256("pof-audience:" ‖ lowercase(trim(id)))
+epoch        u64        the verifier's period; with circuit and audience it is the scope
+binding      [u8; 32]   all zero · a Solana pubkey · blake2b("vouch-intent-v1", deposit intent)
+nc_height    u32        the block whose note-commitment tree holds the notes
+nc_root      [u8; 32]
+height       u32        the block whose spent set does not hold them ("as of")
+nf_root      [u8; 32]   nc_height ≤ height; equal unless the proof says "unmoved since"
+issued_at    u64
+expires_at   u64
+revocation   [u8; 16]
+evidence     { public_inputs: Vec<[u8; 32]>, proof: Vec<u8>, signature: [u8; 64] }`}</Code>
+          <p>
+            <strong>Version 1</strong> (still read, and re-encoded byte for byte):
+          </p>
           <Code>{`claim        enum Claim                      (varint tag + fields)
 audience     [u8; 32]   blake2b-256("pof-audience:" ‖ lowercase(trim(id)))
 binding      [u8; 32]   all zero, or e.g. the holder's Solana pubkey
@@ -139,7 +158,9 @@ evidence     { public_inputs: Vec<[u8; 32]>, proof: Vec<u8>, signature: [u8; 64]
               ['anchor', 'A height and both ledger roots at that height. The verifier accepts only roots in its authenticated anchor table.'],
               ['expires_at', 'Absolute, not a duration.'],
               ['revocation', 'Opaque. The holder revokes by publishing the secret; see the trust model.'],
-              ['evidence', '9 public inputs, the Halo2 proof, and the spend-authorisation signature.'],
+              ['evidence', '9 public inputs (15 for circuit 2), the Halo2 proof, and the spend-authorisation signature.'],
+              ['epoch', 'Chosen by the verifier in its request. A proof made without one gets a scope of its own, so it links to nothing.'],
+              ['nc_height', 'When earlier than height, the notes were already in the chain at nc_height and have not moved since.'],
             ]}
           />
         </>
@@ -170,13 +191,15 @@ evidence     { public_inputs: Vec<[u8; 32]>, proof: Vec<u8>, signature: [u8; 64]
       body: (
         <>
           <p>
-            The <strong>statement</strong> is every body field except the evidence. Its personalised blake2b hash, with the top two bits cleared, is
-            the circuit’s <C>vote_round_id</C>. The signed note’s rho, the governance commitment and the nullifier domain all bind to it, so a proof
-            made for one statement does not verify for any other: change the audience, the expiry, the threshold, the binding or the anchor and
-            the proof fails.
+            The <strong>statement</strong> is every body field except the evidence. The holder signs it, with every public input, under the key the
+            circuit proves controls the notes, so changing any field — the claim, audience, epoch, binding, either anchor height, the expiry —
+            fails the signature. In version 1 the circuit’s <C>vote_round_id</C> is also the statement hash. In version 2 it is the{' '}
+            <strong>scope</strong>: the circuit, audience and epoch. The same note then yields the same tag inside one scope, so a verifier sees the
+            same coins used twice with it, and nobody else can link anything.
           </p>
           <Code>{`statement  = blake2b-256[personal "vouch-stmt-v1"](head)
-round_id   = statement with bits 254..255 cleared, as a Pallas base element
+scope      = blake2b-256[personal "vouch-scope-v2"](circuit ‖ audience ‖ epoch_le)   (version 2)
+round_id   = statement (v1) or scope (v2), bits 254..255 cleared, as a Pallas base element
 dom        = Poseidon("governance authorization", round_id)
 min_units  = claim.zatoshi / 12_500_000
 message    = blake2b-256[personal "vouch-sig-v1"](statement ‖ public_inputs)
@@ -211,8 +234,18 @@ signature  = RedPallas SpendAuth over message, under rk`}</Code>
           </p>
           <p>
             Carried public inputs, in order: <C>nf_signed, rk, cmx_new, van_comm, gov_null_1..5</C>. Derived by the verifier: <C>vote_round_id</C>,{' '}
-            <C>dom</C>, <C>nc_root</C>, <C>nf_imt_root</C>, <C>min_ballots</C>. The governance nullifiers are domain-separated per statement and
+            <C>dom</C>, <C>nc_root</C>, <C>nf_imt_root</C>, <C>min_ballots</C>. The governance nullifiers (tags) are domain-separated per scope and
             unlinkable to the real nullifiers.
+          </p>
+          <p>
+            <C>nc_root</C> and <C>nf_imt_root</C> are independent public inputs. Taking the first at an earlier block than the second proves the
+            notes existed then and are unspent now: the tree only grows, and a note moves only by revealing its nullifier.
+          </p>
+          <p>
+            <strong>Circuit 2</strong> (exit certificates) is the same circuit with a second Vouch modification: a boolean <C>reveal</C> (public
+            input 15) and <C>reveal × real_nf</C> for each slot (16–20). With <C>reveal = 1</C> the five real nullifiers are public, so a recipient
+            can match a deposit to exactly the certified notes; with <C>0</C> they are forced to zero. It has its own verifying key; circuit 1’s is
+            unchanged. Carried inputs for circuit 2: the nine above, then <C>reveal, revealed_nf_1..5</C>.
           </p>
         </>
       ),
@@ -229,19 +262,34 @@ signature  = RedPallas SpendAuth over message, under rk`}</Code>
               ['1', 'Magic, version, checksum, body parse; HoldsAtLeast in whole units', <C key="1">Malformed</C>],
               ['2', 'Now is before expires_at', <C key="2">Expired</C>],
               ['3', 'No published secret hashes to the revocation tag', <C key="3">Revoked</C>],
-              ['4', 'blake2b(identifier) equals audience', <C key="4">WrongAudience</C>],
-              ['5', 'Both roots equal an authenticated anchor at that height', <C key="5">AnchorNotFound</C>],
-              ['6', 'Distinct governance nullifiers, the signature under rk, then the Halo2 proof against the 15 public inputs', <C key="6">ProofInvalid</C>],
+              ['4', 'blake2b(identifier) equals audience; the epoch is the one the verifier asked for, if it asked', <><C>WrongAudience</C> · <C>WrongScope</C></>],
+              [
+                '5',
+                'The note-commitment root at nc_height and the spent-set root at height are both authenticated; the spent set is fresh enough and the notes unmoved long enough for the verifier’s policy',
+                <><C>AnchorNotFound</C> · <C>AnchorTooOld</C> · <C>NotDormantLongEnough</C></>,
+              ],
+              ['6', 'Distinct tags, the signature under rk, the Halo2 proof against the circuit’s key; then none of the tags is in the verifier’s reuse registry', <><C>ProofInvalid</C> · <C>AlreadyUsed</C></>],
             ]}
           />
           <Code>{`pub enum Verdict {
-    Valid { claim: Claim, anchor_height: u32 },
+    Valid { claim: Claim, anchor_height: u32, dormant_since: Option<u32> },
     Expired { at: u64 },
     Revoked,
     WrongAudience,
     AnchorNotFound,
+    AnchorTooOld { anchor_height: u32 },
+    NotDormantLongEnough { dormant_since: u32, required: u32 },
+    WrongScope { epoch: u64, required: u64 },
+    AlreadyUsed,
     ProofInvalid { detail: String },
     Malformed { reason: String },
+}
+
+pub struct Policy {            // what this verifier additionally requires; all optional
+    tip_height: Option<u32>,   // with max_anchor_age: refuse a stale spent set
+    max_anchor_age: Option<u32>,
+    dormant_since: Option<u32>, // notes unmoved since this block or earlier
+    epoch: Option<u64>,         // the period the request named
 }`}</Code>
           <p>
             A typed verdict, never a bool. <C>ProofInvalid</C> says the evidence does not prove the statement and not which constraint failed;
@@ -282,13 +330,36 @@ signature  = RedPallas SpendAuth over message, under rk`}</Code>
       ),
     },
     {
+      id: 'reserves',
+      title: 'Reserves batches',
+      body: (
+        <>
+          <p>
+            A holder with more than five notes, or a treasury, proves its reserves as a batch: several version 2 proofs in one scope and against one
+            anchor, in a <C>.pofb</C> container. The verifier checks every member, refuses a batch in which any tag appears twice (a note counted
+            twice), and states the sum. Natively the members’ Halo2 proofs are checked together, with one multi-scalar multiplication.
+          </p>
+          <Code>{` magic      "POFB"                 4 bytes
+ version    u16, little-endian     2 bytes   01 00
+ count      u16, little-endian     2 bytes   1 … 64
+ members    count × (u32 LE length ‖ a complete POF1 file)
+ checksum   blake2b-256 of everything before it`}</Code>
+          <p>
+            Check one at <A href="/reserves">/reserves</A>, or with <C>pof-verify check reserves.pofb</C>. On Solana, <C>pof-reserve</C> turns an
+            attested batch into a feed that any program can read, and its demo token mints only within the proven total.
+          </p>
+        </>
+      ),
+    },
+    {
       id: 'json',
       title: 'As JSON',
       body: (
         <>
           <p>
             Every verifier returns the same JSON for a file: the WASM <C>verify()</C>, <C>pof-verify check --json</C> and the attestor’s{' '}
-            <C>/v1/verify</C>. It holds the verdict, the six checks in order, the matched anchor record, and <C>envelope</C>, the JSON projection
+            <C>/v1/verify</C>. It holds the verdict, the six checks in order, the matched anchor record, the proof’s <C>scope</C> and <C>tags</C>
+            (for a reuse registry), an exit certificate’s <C>revealed</C> nullifiers, and <C>envelope</C>, the JSON projection
             of the proof itself (hex in lowercase, amounts in zatoshi, times in unix seconds). Its JSON Schema is published at{' '}
             <A href="/schema/pof-v1.json">/schema/pof-v1.json</A>, and CI checks every test vector’s result against it.
           </p>
@@ -315,6 +386,92 @@ signature  = RedPallas SpendAuth over message, under rk`}</Code>
             The first, <C>testnet-valid.pof</C>, was made by <C>pof-prove prove</C> from a real Zcash testnet wallet: at least 1 TAZ, as of testnet
             block 4,410,000, for the audience <C>vouch:testnet-demo</C>. Its tampered, forged and re-addressed copies sit beside it. The rest were
             written by <C>pof-prove demo fixtures</C> against the demo ledger, for the audience <C>{DEMO_AUDIENCE.id}</C>.
+          </p>
+        </>
+      ),
+    },
+  ],
+}
+
+const rail: Doc = {
+  slug: 'rail',
+  eyebrow: 'GUIDE · FOR RAILS',
+  title: 'Exit certificates',
+  lede: 'For a swap rail, an exchange or a desk that receives shielded ZEC: ask for a certificate, check it under your own policy, and match the deposit when it lands. Vouch returns evidence; you decide.',
+  sections: [
+    {
+      id: 'ask',
+      title: '1 · Ask',
+      body: (
+        <>
+          <p>
+            Build a request at <A href="/request">/request</A> with <strong>Exit certificate</strong> selected. It names your identifier, a period
+            (this month by default) and, if your policy wants one, a block the coins must be unmoved since — for example a block before a known
+            incident. Hand the link to the holder with the deposit address.
+          </p>
+          <Code>{`{ "v": 1, "id": "c1ea4e7e5a1f0002", "claim": "HoldsAtLeast", "zatoshi": "100000000",
+  "audience": "rail:example", "expiryDays": 7, "kind": "exit", "epoch": 202610, "dormantSince": 4410000 }`}</Code>
+          <p>
+            The holder runs <C>pof-prove prove --request …</C>. An exit certificate names every usable note (up to five), bound to the request id
+            as the deposit intent. The holder must send from those notes in a transaction with no dummy spends: two or more certified notes in, no
+            more outputs than spends.
+          </p>
+        </>
+      ),
+    },
+    {
+      id: 'check',
+      title: '2 · Check the certificate',
+      body: (
+        <>
+          <Code>{`pof-verify check certificate.pof --audience rail:example --anchors anchors.json \
+  --epoch 202610 --dormant-since 4410000 --seen your-registry.json`}</Code>
+          <p>
+            Valid means: at least that much, in notes unmoved since the block, made for you in this period, and none of these notes already used
+            with you this period. Record the result’s <C>tags</C> in your registry. Or run the same check in the browser at{' '}
+            <A href="/rail">/rail</A>, or through the attestor’s API:
+          </p>
+          <Code>{`POST /v1/certificates   { "certificate": "<base64url>", "audience": "rail:example", "epoch": 202610,
+                          "dormantSince": 4410000, "intent": "c1ea4e7e5a1f0002" }
+→ { "status": "pre-cleared", "certificate": { "id": "…", "revealed": [ … ], "tags": [ … ] }, "result": { … } }`}</Code>
+        </>
+      ),
+    },
+    {
+      id: 'match',
+      title: '3 · Match the deposit',
+      body: (
+        <>
+          <Code>{`pof-anchor tx --network testnet --txid <deposit txid> > deposit.json
+pof-verify match --cert certificate.pof --deposit deposit.json        # exit 0: matched
+
+POST /v1/certificates/{id}/match   { "txid": "<deposit txid>" }
+→ { "status": "matched" | "mismatch", "certificate": { "deposit": { "result": { "kind": "Matched", "spent": 2 } } } }`}</Code>
+          <p>
+            Matched means every note the deposit spends is one the certificate named. Value inside one transaction is pooled, so a single
+            uncertified spend makes the whole deposit a mismatch. A dummy spend reveals a nullifier that looks exactly like an uncertified note,
+            which is why exit transactions must be built without them.
+          </p>
+          <p>
+            The API signs events to your webhook (<C>POF_WEBHOOK_URL</C>, <C>X-Vouch-Signature: sha256=&lt;hmac&gt;</C>) and needs a bearer
+            token when <C>POF_RAIL_TOKEN</C> is set. It stores ids, tags, revealed nullifiers and verdicts, never proof bytes.
+          </p>
+        </>
+      ),
+    },
+    {
+      id: 'limits',
+      title: 'What it does not say',
+      body: (
+        <>
+          <p>
+            Unmoved since block H says when the coins last moved, not where they were before H. Coins stolen long before H and left untouched would
+            pass, which is why H is your policy’s choice. It is evidence for your risk process, never a “clean” stamp, and it is not a legal
+            answer to any regulation.
+          </p>
+          <p>
+            The rail sees the certified notes’ nullifiers before the deposit lands, so it could see if the holder spent them elsewhere instead.
+            Holders are told to make certificates only when they are ready to send.
           </p>
         </>
       ),
@@ -643,7 +800,12 @@ const trust: Doc = {
         <ul className="list-none space-y-2">
           <li>— Prove where funds came from before they entered the shielded pool.</li>
           <li>— Prove a negative: that a holder has nothing elsewhere.</li>
-          <li>— Stop a holder spending the funds right after proving. Proofs are point-in-time; the anchor says which point.</li>
+          <li>
+            — Stop a holder spending the funds right after proving. Proofs are point-in-time; the anchor says which point. A consumer has to ask
+            again, as a lender asks for a new bank statement: <C>pof-credit</C> draws only while a line’s latest proof is fresh (24 hours by
+            default, never past the proof’s expiry), and a refresh needs a new proof at an anchor no older than the line’s last or the pool’s
+            floor. A holder who spent the funds cannot make one.
+          </li>
           <li>— Stop the same notes backing proofs to several audiences. Each proof is single-use where it lands (one receipt, one credit line), but the funds are not locked.</li>
           <li>— Prove more than five notes’ worth in one proof. A wallet with many small notes consolidates first.</li>
           <li>— Make an institution accept a proof. That is a conversation, not a feature.</li>
@@ -690,15 +852,56 @@ const faq: Doc = {
   sections: [
     { id: 'mixer', title: 'Is this a mixer?', body: <p>The opposite. A mixer hides; Vouch makes one fact visible again, to one named party, with an expiry. Nothing is moved and nothing is hidden that was not already hidden.</p> },
     { id: 'bridge', title: 'Is this a bridge?', body: <p>No. Nothing is bridged: the ZEC never leaves Zcash. Only a proof moves, and on Solana only a signed verdict about it.</p> },
-    { id: 'exchange', title: 'Does it get shielded funds onto an exchange?', body: <p>No, and we do not pitch it that way. Exchanges ask where funds came from; Vouch proves how much you hold. It is for collateral and counterparty checks, where the question really is “do you have it”.</p> },
-    { id: 'spend', title: 'What stops them spending right after proving?', body: <p>Nothing, and the proof says so: it is “as of” one block. For a loan, a lender asks for a fresh proof at each check. Continuous monitoring is a separate product.</p> },
+    {
+      id: 'exchange',
+      title: 'Does it get shielded funds through an exchange or a swap?',
+      body: (
+        <p>
+          It gives the rail evidence, not a pass. An exit certificate shows the coins were already in the chain at a block the rail picks (say,
+          before an incident) and have not moved since, and names them, so the deposit can be matched to exactly them. Whether that releases a
+          held deposit is the rail’s policy. See <A href="/docs/rail">Exit certificates</A>.
+        </p>
+      ),
+    },
+    {
+      id: 'clean',
+      title: 'Does it prove the coins are clean?',
+      body: (
+        <p>
+          No, and it never says so. It proves when the coins last moved, not where they were before. Tracing shielded funds is impossible by
+          design; that is what the shielded pool is for. Coins stolen long before the block a rail picks, and left untouched, would pass, which is
+          why the block is the rail’s choice.
+        </p>
+      ),
+    },
+    {
+      id: 'spend',
+      title: 'What stops them spending right after proving?',
+      body: (
+        <p>
+          Nothing, and the proof says so: it is “as of” one block. A lender asks for a fresh proof at each check, can require a recent spent set,
+          and, by naming a period in its request, sees the same coins pledged twice to it. An exit certificate is different: it names the coins,
+          and the rail matches them against the deposit itself.
+        </p>
+      ),
+    },
     { id: 'viewingkey', title: 'Why not just use a viewing key?', body: <p>A viewing key shows every payment ever received, forever, and cannot be revoked or scoped. A proof shows one fact, to one party, until one date, and can be revoked.</p> },
-    { id: 'notes', title: 'What if my ZEC is in many small notes?', body: <p>One proof covers up to five notes. Send yourself the amount first (a shielded self-transfer reveals nothing) so it sits in fewer notes, then prove.</p> },
+    {
+      id: 'notes',
+      title: 'What if my ZEC is in many small notes?',
+      body: (
+        <p>
+          One proof covers up to five notes. Prove a batch instead (<A href="/reserves">reserves</A>): several proofs, one total, no note counted
+          twice. Or send yourself the amount first so it sits in fewer notes; but a self-transfer makes new notes, so it restarts any “unmoved
+          since” clock.
+        </p>
+      ),
+    },
     { id: 'orchard', title: 'Why Ironwood and not Orchard?', body: <p>Ironwood replaced Orchard in July 2026 after the Orchard counterfeiting flaw, and holders are migrating. Anything built against Orchard alone is built against a closing door.</p> },
-    { id: 'reuse', title: 'What did you build versus reuse?', body: <p>See <A href="/docs/trust#credits">What we built on</A>. The circuit is Valar Group’s with one added constraint; everything around it is ours.</p> },
+    { id: 'reuse', title: 'What did you build versus reuse?', body: <p>See <A href="/docs/trust#credits">What we built on</A>. The circuit is Valar Group’s with two Vouch additions (the threshold, and the optional revealed nullifiers of exit certificates); everything around it is ours.</p> },
   ],
 }
 
-export const DOCS: Doc[] = [format, integration, prove, trust, attestor, faq]
+export const DOCS: Doc[] = [format, integration, rail, prove, trust, attestor, faq]
 
 export const getDoc = (slug: string) => DOCS.find((d) => d.slug === slug)

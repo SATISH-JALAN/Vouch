@@ -174,7 +174,7 @@ export function Nav() {
           {NAV.map((n) => {
             const current = pathname === n.href || (n.href.startsWith('/docs') && pathname.startsWith('/docs'))
             return (
-              <li key={n.href} className="relative">
+              <li key={n.href} className={cx('relative', 'wide' in n && n.wide && 'hidden md:list-item')}>
                 <Link
                   href={n.href}
                   aria-current={current ? 'page' : undefined}

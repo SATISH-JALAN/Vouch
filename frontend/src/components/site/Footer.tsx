@@ -12,6 +12,8 @@ const LINKS_ROW: { href: string; label: string; external?: boolean }[] = [
   { href: '/verify', label: 'Verify' },
   { href: '/request', label: 'Request' },
   { href: '/prove', label: 'Prove' },
+  { href: '/rail', label: 'Rail' },
+  { href: '/reserves', label: 'Reserves' },
   { href: '/demo', label: 'Demo' },
   { href: '/docs/format', label: 'Docs' },
   { href: LINKS.zip311, label: 'ZIP 311', external: true },

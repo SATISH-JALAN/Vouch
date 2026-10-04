@@ -31,6 +31,9 @@ export const NAV = [
   { href: '/verify', label: 'Verify' },
   { href: '/request', label: 'Request' },
   { href: '/prove', label: 'Prove' },
+  // wide: only from the md breakpoint; phones reach them from the footer
+  { href: '/rail', label: 'Rail', wide: true },
+  { href: '/reserves', label: 'Reserves', wide: true },
   { href: '/demo', label: 'Demo' },
   { href: '/docs/format', label: 'Docs' },
 ] as const
