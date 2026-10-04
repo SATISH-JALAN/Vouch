@@ -4,8 +4,8 @@
 //! `src/lib/pof/codec.ts`) and this crate can be checked against the same golden vectors.
 
 use crate::{
-    hash::blake2b_256, Anchor, Claim, Envelope, Evidence, FORMAT_VERSION, MAGIC_BYTES, MAX_PROOF_BYTES, MAX_PUBLIC_INPUTS,
-    MAX_TIMESTAMP, MAX_ZATOSHI,
+    hash::blake2b_256, Anchor, Claim, Envelope, Evidence, CIRCUIT_REVEAL, CIRCUIT_THRESHOLD, FORMAT_V1, FORMAT_VERSION, MAGIC_BYTES,
+    MAX_PROOF_BYTES, MAX_PUBLIC_INPUTS, MAX_TIMESTAMP, MAX_ZATOSHI,
 };
 
 /// Why a file failed to parse. Each variant is a different message in the UI.
@@ -15,7 +15,7 @@ pub enum DecodeError {
     TooShort,
     #[error("Not a proof file: the POF1 magic bytes are missing.")]
     BadMagic,
-    #[error("Unknown format version {0}. This verifier reads version 1.")]
+    #[error("Unknown format version {0}. This verifier reads versions 1 and 2.")]
     UnknownVersion(u16),
     #[error("Checksum mismatch. The file was truncated or damaged in transit — this is not the same as a forgery.")]
     Checksum,
@@ -50,7 +50,7 @@ impl Writer {
     }
 }
 
-fn write_head(w: &mut Writer, e: &Envelope) {
+fn write_claim(w: &mut Writer, e: &Envelope) {
     w.varint(e.claim.tag() as u64);
     match &e.claim {
         Claim::HoldsAtLeast { zatoshi } | Claim::HoldsExactly { zatoshi } => w.varint(*zatoshi),
@@ -63,25 +63,44 @@ fn write_head(w: &mut Writer, e: &Envelope) {
             w.varint(*from_height as u64);
         }
     }
-    w.fixed(&e.audience);
-    w.fixed(&e.binding);
-    w.varint(e.anchor.height as u64);
-    w.fixed(&e.anchor.nc_root);
-    w.fixed(&e.anchor.nf_root);
+}
+
+/// Version 1: claim, audience, binding, height, nc_root, nf_root, issued, expires, revocation.
+/// Version 2: circuit, claim, audience, epoch, binding, nc_height, nc_root, height, nf_root,
+/// issued, expires, revocation.
+fn write_head(w: &mut Writer, e: &Envelope) {
+    if e.wire_version() == FORMAT_V1 {
+        write_claim(w, e);
+        w.fixed(&e.audience);
+        w.fixed(&e.binding);
+        w.varint(e.anchor.height as u64);
+        w.fixed(&e.anchor.nc_root);
+        w.fixed(&e.anchor.nf_root);
+    } else {
+        w.varint(e.circuit as u64);
+        write_claim(w, e);
+        w.fixed(&e.audience);
+        w.varint(e.epoch);
+        w.fixed(&e.binding);
+        w.varint(e.anchor.nc_height as u64);
+        w.fixed(&e.anchor.nc_root);
+        w.varint(e.anchor.height as u64);
+        w.fixed(&e.anchor.nf_root);
+    }
     w.varint(e.issued_at);
     w.varint(e.expires_at);
     w.fixed(&e.revocation);
 }
 
-/// The statement: every body field except the evidence. This is what the proof binds to.
+/// The statement: every body field except the evidence, in the envelope's wire version.
 pub(crate) fn encode_head(e: &Envelope) -> Vec<u8> {
-    let mut w = Writer(Vec::with_capacity(160));
+    let mut w = Writer(Vec::with_capacity(176));
     write_head(&mut w, e);
     w.0
 }
 
 fn encode_body(e: &Envelope) -> Vec<u8> {
-    let mut w = Writer(Vec::with_capacity(160 + e.evidence.proof.len() + 32 * e.evidence.public_inputs.len()));
+    let mut w = Writer(Vec::with_capacity(176 + e.evidence.proof.len() + 32 * e.evidence.public_inputs.len()));
     write_head(&mut w, e);
     w.varint(e.evidence.public_inputs.len() as u64);
     for pi in &e.evidence.public_inputs {
@@ -96,7 +115,7 @@ pub fn encode(e: &Envelope) -> Vec<u8> {
     let body = encode_body(e);
     let mut out = Vec::with_capacity(4 + 2 + body.len() + 32);
     out.extend_from_slice(&MAGIC_BYTES);
-    out.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
+    out.extend_from_slice(&e.wire_version().to_le_bytes());
     out.extend_from_slice(&body);
     out.extend_from_slice(&blake2b_256(&body));
     out
@@ -170,9 +189,8 @@ fn amount(z: u64) -> Result<u64, String> {
     }
 }
 
-fn read_body(body: &[u8]) -> Result<Envelope, String> {
-    let mut r = Reader { b: body, o: 0 };
-    let claim = match r.varint()? {
+fn read_claim(r: &mut Reader) -> Result<Claim, String> {
+    Ok(match r.varint()? {
         0 => Claim::HoldsAtLeast { zatoshi: amount(r.varint()?)? },
         1 => Claim::HoldsExactly { zatoshi: amount(r.varint()?)? },
         2 => {
@@ -184,10 +202,42 @@ fn read_body(body: &[u8]) -> Result<Envelope, String> {
             Claim::ReceivedAtLeastSince { zatoshi, from_height: r.u32()? }
         }
         t => return Err(format!("unknown claim tag {t}")),
-    };
-    let audience = r.fixed::<32>()?;
-    let binding = r.fixed::<32>()?;
-    let anchor = Anchor { height: r.u32()?, nc_root: r.fixed::<32>()?, nf_root: r.fixed::<32>()? };
+    })
+}
+
+fn read_body(body: &[u8], version: u16) -> Result<Envelope, String> {
+    let mut r = Reader { b: body, o: 0 };
+    let (circuit, claim, audience, epoch, binding, anchor);
+    if version == FORMAT_V1 {
+        circuit = CIRCUIT_THRESHOLD;
+        claim = read_claim(&mut r)?;
+        audience = r.fixed::<32>()?;
+        epoch = 0;
+        binding = r.fixed::<32>()?;
+        let height = r.u32()?;
+        anchor = Anchor::at(height, r.fixed::<32>()?, r.fixed::<32>()?);
+    } else {
+        circuit = match r.varint()? {
+            1 => CIRCUIT_THRESHOLD,
+            2 => CIRCUIT_REVEAL,
+            c => return Err(format!("unknown circuit {c}")),
+        };
+        claim = read_claim(&mut r)?;
+        audience = r.fixed::<32>()?;
+        epoch = r.varint()?;
+        if epoch > MAX_TIMESTAMP {
+            return Err("epoch exceeds 2^53 - 1".into());
+        }
+        binding = r.fixed::<32>()?;
+        let nc_height = r.u32()?;
+        let nc_root = r.fixed::<32>()?;
+        let height = r.u32()?;
+        let nf_root = r.fixed::<32>()?;
+        if nc_height > height {
+            return Err("the note-commitment block is after the spent-set block".into());
+        }
+        anchor = Anchor { height, nc_root, nf_root, nc_height };
+    }
     let issued_at = r.varint()?;
     let expires_at = r.varint()?;
     if issued_at.max(expires_at) > MAX_TIMESTAMP {
@@ -208,8 +258,11 @@ fn read_body(body: &[u8]) -> Result<Envelope, String> {
         return Err("trailing bytes after the envelope".into());
     }
     Ok(Envelope {
+        version,
+        circuit,
         claim,
         audience,
+        epoch,
         binding,
         anchor,
         issued_at,
@@ -228,7 +281,7 @@ pub fn decode(file: &[u8]) -> Result<(Envelope, [u8; 32]), DecodeError> {
         return Err(DecodeError::BadMagic);
     }
     let version = u16::from_le_bytes([file[4], file[5]]);
-    if version != FORMAT_VERSION {
+    if version != FORMAT_V1 && version != FORMAT_VERSION {
         return Err(DecodeError::UnknownVersion(version));
     }
     let body = &file[6..file.len() - 32];
@@ -237,7 +290,7 @@ pub fn decode(file: &[u8]) -> Result<(Envelope, [u8; 32]), DecodeError> {
     if blake2b_256(body) != checksum {
         return Err(DecodeError::Checksum);
     }
-    let env = read_body(body).map_err(DecodeError::Body)?;
+    let env = read_body(body, version).map_err(DecodeError::Body)?;
     Ok((env, checksum))
 }
 
@@ -291,10 +344,13 @@ mod tests {
 
     pub(crate) fn sample(claim: Claim) -> Envelope {
         Envelope {
+            version: FORMAT_V1,
+            circuit: CIRCUIT_THRESHOLD,
             claim,
             audience: audience_hash("pof-credit:usdc-pool-1"),
+            epoch: 0,
             binding: [7u8; 32],
-            anchor: Anchor { height: 3_491_040, nc_root: [1; 32], nf_root: [2; 32] },
+            anchor: Anchor::at(3_491_040, [1; 32], [2; 32]),
             issued_at: 1_790_035_200,
             expires_at: 1_790_640_000,
             revocation: [9; 16],
@@ -318,6 +374,59 @@ mod tests {
         }
     }
 
+    /// A version 2 envelope: dormant since 3,480,000, as of 3,491,040, in epoch 2026-10.
+    pub(crate) fn sample_v2(claim: Claim) -> Envelope {
+        let mut e = sample(claim);
+        e.version = FORMAT_VERSION;
+        e.epoch = 202_610;
+        e.anchor = Anchor { height: 3_491_040, nc_root: [1; 32], nf_root: [2; 32], nc_height: 3_480_000 };
+        e
+    }
+
+    #[test]
+    fn version_2_round_trips_and_says_dormant_since() {
+        for circuit in [CIRCUIT_THRESHOLD, CIRCUIT_REVEAL] {
+            let mut e = sample_v2(Claim::HoldsAtLeast { zatoshi: 50_000_000_000 });
+            e.circuit = circuit;
+            let f = encode(&e);
+            assert_eq!(u16::from_le_bytes([f[4], f[5]]), 2);
+            let (d, _) = decode(&f).unwrap();
+            assert_eq!(d, e);
+            assert_eq!(d.dormant_since(), Some(3_480_000));
+        }
+        // A version 2 envelope with one height and no epoch stays version 2: the version decides
+        // how the round id is derived, so it is never inferred from the fields.
+        let mut plain = sample_v2(Claim::HoldsAtLeast { zatoshi: 12_500_000 });
+        (plain.epoch, plain.anchor.nc_height) = (0, plain.anchor.height);
+        assert_eq!(decode(&encode(&plain)).unwrap().0.version, 2);
+    }
+
+    #[test]
+    fn version_1_is_written_only_when_nothing_would_be_lost() {
+        let v1 = sample(Claim::HoldsAtLeast { zatoshi: 12_500_000 });
+        let f = encode(&v1);
+        assert_eq!(u16::from_le_bytes([f[4], f[5]]), 1);
+        assert_eq!(decode(&f).unwrap().0, v1);
+        let mut grown = v1.clone();
+        grown.epoch = 1;
+        assert_eq!(grown.wire_version(), FORMAT_VERSION);
+        assert_ne!(statement_hash(&grown), statement_hash(&v1));
+        assert_eq!(decode(&encode(&grown)).unwrap().0.epoch, 1);
+    }
+
+    #[test]
+    fn version_2_field_rules() {
+        let mut e = sample_v2(Claim::HoldsAtLeast { zatoshi: 12_500_000 });
+        e.anchor.nc_height = e.anchor.height + 1;
+        assert_eq!(body_err(&e), DecodeError::Body("the note-commitment block is after the spent-set block".into()));
+        let mut e = sample_v2(Claim::HoldsAtLeast { zatoshi: 12_500_000 });
+        e.epoch = MAX_TIMESTAMP + 1;
+        assert_eq!(body_err(&e), DecodeError::Body("epoch exceeds 2^53 - 1".into()));
+        let mut e = sample_v2(Claim::HoldsAtLeast { zatoshi: 12_500_000 });
+        e.circuit = 3;
+        assert_eq!(body_err(&e), DecodeError::Body("unknown circuit 3".into()));
+    }
+
     #[test]
     fn distinct_errors() {
         let f = encode(&sample(Claim::HoldsAtLeast { zatoshi: 12_500_000 }));
@@ -326,8 +435,8 @@ mod tests {
         bad[0] = b'X';
         assert_eq!(decode(&bad).unwrap_err(), DecodeError::BadMagic);
         let mut bad = f.clone();
-        bad[4] = 2;
-        assert_eq!(decode(&bad).unwrap_err(), DecodeError::UnknownVersion(2));
+        bad[4] = 3;
+        assert_eq!(decode(&bad).unwrap_err(), DecodeError::UnknownVersion(3));
         let mut bad = f.clone();
         bad[100] ^= 1;
         assert_eq!(decode(&bad).unwrap_err(), DecodeError::Checksum);
