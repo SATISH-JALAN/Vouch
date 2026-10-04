@@ -10,12 +10,15 @@ export type Claim =
   | { kind: 'ReceivedAtLeastSince'; zatoshi: number; fromHeight: number }
 
 export interface Anchor {
-  /** Finalised block height the proof is "as of". */
+  /** Finalised block height the proof is "as of": the spent set there does not hold the notes. */
   height: number
-  /** Ironwood note-commitment tree root at that height, hex. */
+  /** Ironwood note-commitment tree root at `ncHeight`, hex. */
   ncRoot: string
-  /** Spent-nullifier indexed Merkle tree root at that height, hex. */
+  /** Spent-nullifier indexed Merkle tree root at `height`, hex. */
   nfRoot: string
+  /** The block whose tree holds the notes. Equal to `height` in version 1; earlier when the proof
+   *  says the notes have not moved since then. */
+  ncHeight: number
 }
 
 export interface Evidence {
@@ -29,9 +32,13 @@ export interface Evidence {
 
 export interface Envelope {
   version: number
+  /** 1: the threshold circuit. 2: threshold plus revealed nullifiers (exit certificates). */
+  circuit: number
   claim: Claim
   /** blake2b-256 of the verifier identifier, hex. Never the plaintext name. */
   audience: string
+  /** The verifier's period (version 2); with the audience it fixes the scope reuse is seen in. */
+  epoch: number
   /** 32 bytes the proof is bound to (e.g. a Solana pubkey), hex. All zero when unbound. */
   binding: string
   anchor: Anchor
@@ -55,11 +62,15 @@ export interface AnchorRecord {
 
 /** pof-verify's Verdict. */
 export type Verdict =
-  | { kind: 'Valid'; claim: Claim; anchorHeight: number }
+  | { kind: 'Valid'; claim: Claim; anchorHeight: number; dormantSince?: number }
   | { kind: 'Expired'; at: number }
   | { kind: 'Revoked' }
   | { kind: 'WrongAudience' }
   | { kind: 'AnchorNotFound' }
+  | { kind: 'AnchorTooOld'; anchorHeight: number }
+  | { kind: 'NotDormantLongEnough'; dormantSince: number; required: number }
+  | { kind: 'WrongScope'; epoch: number; required: number }
+  | { kind: 'AlreadyUsed' }
   | { kind: 'ProofInvalid'; detail: string }
   | { kind: 'Malformed'; reason: string }
 
@@ -82,6 +93,12 @@ export interface VerificationResult {
   checksum: string | null
   /** The authenticated anchor the proof was checked against, when one matched. */
   anchor: AnchorRecord | null
+  /** The scope the proof's tags belong to (hex), when it parsed. */
+  scope: string | null
+  /** The five per-note tags (hex): record them for a Valid verdict as the reuse registry. */
+  tags: string[]
+  /** An exit certificate's revealed nullifiers (hex); empty for any other proof. */
+  revealed: string[]
   elapsedMs: number
   /** Unix seconds the verification was evaluated at. */
   now: number
@@ -89,7 +106,35 @@ export interface VerificationResult {
   verifier: string
 }
 
-export type PresetId = 'valid' | 'tampered' | 'expired' | 'revoked' | 'wrong-audience' | 'forged-claim' | 'extended-expiry' | 'anchor-mismatch' | 'readdressed' | 'threshold-4000' | 'onchain' | 'testnet-valid'
+export type PresetId =
+  | 'valid' | 'tampered' | 'expired' | 'revoked' | 'wrong-audience' | 'forged-claim' | 'extended-expiry' | 'anchor-mismatch'
+  | 'readdressed' | 'threshold-4000' | 'onchain' | 'testnet-valid' | 'testnet-dormant' | 'dormant' | 'dormant-too-young' | 'anchor-too-old'
+
+/** What a verifier additionally requires (pof-verify's Policy). Empty: nothing beyond the six checks. */
+export interface Policy {
+  /** The chain tip the verifier knows of; with `maxAnchorAge`, refuses a stale spent set. */
+  tipHeight?: number
+  maxAnchorAge?: number
+  /** Require the notes unmoved since this block or earlier. */
+  dormantSince?: number
+  /** Require this period (the epoch the request named). */
+  epoch?: number
+}
+
+/** pof-verify's BatchVerdict: a reserves batch either establishes a total or names the member at fault. */
+export type BatchVerdict =
+  | { kind: 'Valid'; totalZatoshi: number; members: number; anchorHeight: number; dormantSince?: number; scope: string }
+  | { kind: 'Invalid'; reason: string; member?: number }
+  | { kind: 'Malformed'; reason: string }
+
+export interface BatchResult {
+  verdict: BatchVerdict
+  members: VerificationResult[]
+  sizeBytes: number
+  now: number
+  verifier: string
+  elapsedMs: number
+}
 
 export interface Preset {
   id: PresetId
@@ -99,6 +144,8 @@ export interface Preset {
   audience: string
   /** Path under /proofs. */
   file: string
+  /** What the verifier requires for this preset, if anything. */
+  policy?: Policy
 }
 
 export interface ProofRequest {
@@ -114,6 +161,12 @@ export interface ProofRequest {
   respondBy?: number
   /** "solana" when the proof must be bound to the holder's Solana account. */
   bind?: 'solana'
+  /** What is asked for: one proof (default), an exit certificate, or a reserves batch. */
+  kind?: 'proof' | 'exit' | 'reserves'
+  /** The verifier's period: reuse of the same coins within it is visible to them. */
+  epoch?: number
+  /** The block the notes must be unmoved since (a multiple of 1,000). */
+  dormantSince?: number
 }
 
 /** The domain-separated message pof-attest signs. */
@@ -168,6 +221,8 @@ export type SubmitOutcome =
 export interface ServiceStatus {
   attestor: { ok: boolean; pubkey?: string; message?: string }
   demoProver: boolean
+  /** No prover, but /demo's one request is answered from pre-made single-use proofs. */
+  demoPool: boolean
   solana: { cluster: string; gate: string; credit: string; pool: string } | null
   /** Revocations, counters and rate limits are in a shared store, not one instance's temp file. */
   durable: boolean

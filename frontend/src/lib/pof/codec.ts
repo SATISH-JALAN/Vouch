@@ -5,6 +5,9 @@
 //   body      postcard(Body)         variable
 //   checksum  blake2b-256(body)      32 bytes
 //
+// Version 2 adds the circuit, the verifier's epoch and a second anchor height (the tree at
+// ncHeight, the spent set at height). Version 1 files still decode and re-encode byte for byte.
+//
 // Travels as base64url wherever it is text. This is a TypeScript mirror used for display and
 // parsing; pof-verify (Rust, compiled to WASM) is the reference and the only thing that
 // decides a verdict. `scripts/verify-fixtures.ts` checks this mirror byte-for-byte against the
@@ -15,7 +18,13 @@ import { blake2b } from './blake2b.ts'
 import { concat, equal, fromHex, hex } from './bytes.ts'
 
 export const MAGIC = new Uint8Array([0x50, 0x4f, 0x46, 0x31]) // "POF1"
-export const FORMAT_VERSION = 1
+/** Latest wire version. Version 1 files still decode. */
+export const FORMAT_VERSION = 2
+export const FORMAT_V1 = 1
+export const CIRCUIT_THRESHOLD = 1
+export const CIRCUIT_REVEAL = 2
+/** Hard cap on public inputs (pof_core::MAX_PUBLIC_INPUTS). */
+export const MAX_PUBLIC_INPUTS = 24
 /** 1 unit = 0.125 ZEC. Threshold claims are proven in whole units. */
 export const ZAT_PER_UNIT = 12_500_000n
 /** Total supply bound, in zatoshi (pof_core::MAX_ZATOSHI). */
@@ -54,7 +63,13 @@ class Writer {
   }
 }
 
-function writeHead(w: Writer, e: Envelope) {
+/** Whether the envelope says nothing version 1 cannot: circuit 1, no epoch, one height. */
+export const fitsV1 = (e: Envelope) => e.circuit === CIRCUIT_THRESHOLD && e.epoch === 0 && e.anchor.ncHeight === e.anchor.height
+
+/** The version actually written: 1 only for a version 1 envelope that still fits it. */
+export const wireVersion = (e: Envelope) => (e.version === FORMAT_V1 && fitsV1(e) ? FORMAT_V1 : FORMAT_VERSION)
+
+function writeClaim(w: Writer, e: Envelope) {
   const c = e.claim
   w.varint(CLAIM_TAG[c.kind])
   switch (c.kind) {
@@ -71,11 +86,27 @@ function writeHead(w: Writer, e: Envelope) {
       w.varint(c.fromHeight)
       break
   }
-  w.fixed(fromHex(e.audience))
-  w.fixed(fromHex(e.binding))
-  w.varint(e.anchor.height)
-  w.fixed(fromHex(e.anchor.ncRoot))
-  w.fixed(fromHex(e.anchor.nfRoot))
+}
+
+function writeHead(w: Writer, e: Envelope) {
+  if (wireVersion(e) === FORMAT_V1) {
+    writeClaim(w, e)
+    w.fixed(fromHex(e.audience))
+    w.fixed(fromHex(e.binding))
+    w.varint(e.anchor.height)
+    w.fixed(fromHex(e.anchor.ncRoot))
+    w.fixed(fromHex(e.anchor.nfRoot))
+  } else {
+    w.varint(e.circuit)
+    writeClaim(w, e)
+    w.fixed(fromHex(e.audience))
+    w.varint(e.epoch)
+    w.fixed(fromHex(e.binding))
+    w.varint(e.anchor.ncHeight)
+    w.fixed(fromHex(e.anchor.ncRoot))
+    w.varint(e.anchor.height)
+    w.fixed(fromHex(e.anchor.nfRoot))
+  }
   w.varint(e.issuedAt)
   w.varint(e.expiresAt)
   w.fixed(fromHex(e.revocation))
@@ -93,7 +124,8 @@ export function encodeBody(e: Envelope): Uint8Array {
 
 export function encode(e: Envelope): Uint8Array {
   const body = encodeBody(e)
-  const version = new Uint8Array([FORMAT_VERSION & 0xff, FORMAT_VERSION >> 8])
+  const v = wireVersion(e)
+  const version = new Uint8Array([v & 0xff, v >> 8])
   return concat(MAGIC, version, body, blake2b(body))
 }
 
@@ -166,7 +198,9 @@ export function decode(file: Uint8Array): DecodeResult {
   if (file.length < 4 + 2 + 32 + 1) return { ok: false, reason: 'Too short to be a proof. The paste may be truncated.' }
   if (!equal(file.subarray(0, 4), MAGIC)) return { ok: false, reason: 'Not a proof file: the POF1 magic bytes are missing.' }
   const version = file[4]! | (file[5]! << 8)
-  if (version !== FORMAT_VERSION) return { ok: false, reason: `Unknown format version ${version}. This verifier reads version ${FORMAT_VERSION}.` }
+  if (version !== FORMAT_V1 && version !== FORMAT_VERSION) {
+    return { ok: false, reason: `Unknown format version ${version}. This verifier reads versions 1 and 2.` }
+  }
 
   const body = file.subarray(6, file.length - 32)
   const checksum = file.subarray(file.length - 32)
@@ -176,26 +210,45 @@ export function decode(file: Uint8Array): DecodeResult {
 
   try {
     const r = new Reader(body)
-    const tag = r.varint()
-    let claim: Claim
-    switch (tag) {
-      case 0: claim = { kind: 'HoldsAtLeast', zatoshi: r.amount() }; break
-      case 1: claim = { kind: 'HoldsExactly', zatoshi: r.amount() }; break
-      case 2: { const txid = hex(r.fixed(32)); claim = { kind: 'ReceivedPayment', txid, zatoshi: r.amount() }; break }
-      case 3: { const zatoshi = r.amount(); claim = { kind: 'ReceivedAtLeastSince', zatoshi, fromHeight: r.u32() }; break }
-      default: throw new Error(`unknown claim tag ${tag}`)
+    const readClaim = (): Claim => {
+      const tag = r.varint()
+      switch (tag) {
+        case 0: return { kind: 'HoldsAtLeast', zatoshi: r.amount() }
+        case 1: return { kind: 'HoldsExactly', zatoshi: r.amount() }
+        case 2: { const txid = hex(r.fixed(32)); return { kind: 'ReceivedPayment', txid, zatoshi: r.amount() } }
+        case 3: { const zatoshi = r.amount(); return { kind: 'ReceivedAtLeastSince', zatoshi, fromHeight: r.u32() } }
+        default: throw new Error(`unknown claim tag ${tag}`)
+      }
     }
-    const audience = hex(r.fixed(32))
-    const binding = hex(r.fixed(32))
-    const height = r.u32()
-    const ncRoot = hex(r.fixed(32))
-    const nfRoot = hex(r.fixed(32))
+    let circuit = CIRCUIT_THRESHOLD
+    let epoch = 0
+    let claim: Claim, audience: string, binding: string, height: number, ncHeight: number, ncRoot: string, nfRoot: string
+    if (version === FORMAT_V1) {
+      claim = readClaim()
+      audience = hex(r.fixed(32))
+      binding = hex(r.fixed(32))
+      height = ncHeight = r.u32()
+      ncRoot = hex(r.fixed(32))
+      nfRoot = hex(r.fixed(32))
+    } else {
+      circuit = r.varint()
+      if (circuit !== CIRCUIT_THRESHOLD && circuit !== CIRCUIT_REVEAL) throw new Error(`unknown circuit ${circuit}`)
+      claim = readClaim()
+      audience = hex(r.fixed(32))
+      epoch = r.varint() // the varint reader already refuses anything above 2^53 − 1
+      binding = hex(r.fixed(32))
+      ncHeight = r.u32()
+      ncRoot = hex(r.fixed(32))
+      height = r.u32()
+      nfRoot = hex(r.fixed(32))
+      if (ncHeight > height) throw new Error('the note-commitment block is after the spent-set block')
+    }
     const issuedAt = r.varint()
     const expiresAt = r.varint()
     if (issuedAt > expiresAt) throw new Error('issued after it expires')
     const revocation = hex(r.fixed(16))
     const n = r.varint()
-    if (n > 16) throw new Error('too many public inputs')
+    if (n > MAX_PUBLIC_INPUTS) throw new Error('too many public inputs')
     const publicInputs: string[] = []
     for (let i = 0; i < n; i++) publicInputs.push(hex(r.fixed(32)))
     const proof = r.bytes(16 * 1024)
@@ -205,10 +258,12 @@ export function decode(file: Uint8Array): DecodeResult {
       ok: true,
       envelope: {
         version,
+        circuit,
         claim,
         audience,
+        epoch,
         binding,
-        anchor: { height, ncRoot, nfRoot },
+        anchor: { height, ncRoot, nfRoot, ncHeight },
         issuedAt,
         expiresAt,
         revocation,
@@ -220,6 +275,9 @@ export function decode(file: Uint8Array): DecodeResult {
     return { ok: false, reason: `Envelope does not parse: ${(err as Error).message}.` }
   }
 }
+
+/** The block since which the notes have not moved, when the proof says more than "as of". */
+export const dormantSince = (e: Envelope) => (e.anchor.ncHeight < e.anchor.height ? e.anchor.ncHeight : undefined)
 
 /** True when `binding` is the all-zero "unbound" value. */
 export const isUnbound = (binding: string) => /^0{64}$/.test(binding)
