@@ -22,6 +22,35 @@
     "testnet-wrong-audience": {
       "verdict": "WrongAudience",
       "audience": "otc-desk:someone-else"
+    },
+    "testnet-dormant": {
+      "verdict": "Valid",
+      "audience": "vouch:testnet-demo",
+      "network": "testnet"
+    },
+    "testnet-dormant-too-young": {
+      "verdict": "NotDormantLongEnough",
+      "audience": "vouch:testnet-demo",
+      "policy": {
+        "dormantSince": 4409000
+      }
+    },
+    "testnet-exit": {
+      "verdict": "Valid",
+      "audience": "rail:testnet-demo",
+      "network": "testnet",
+      "policy": {
+        "epoch": 202610
+      }
+    },
+    "testnet-exit-first-attempt": {
+      "verdict": "Valid",
+      "audience": "rail:testnet-demo",
+      "network": "testnet",
+      "policy": {
+        "epoch": 202610,
+        "dormantSince": 4410000
+      }
     }
   }
 }
