@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Deploy pof-gate and pof-credit to Solana devnet under their fixed program ids, then allowlist the
-# attestor, create the dUSDC mint and the ≥ 500 ZEC credit pool, and fund the demo relayer.
+# Deploy pof-gate, pof-credit and pof-reserve to Solana devnet under their fixed program ids, then allowlist the
+# attestor, create the dUSDC mint and the ≥ 500 ZEC credit pool, the demo reserves feed (issuer: the
+# relayer), and fund the demo relayer.
 # Prints the site's public environment, and writes the whole of it, demo keypairs included, to
 # backend/solana/keys/vercel.env (owner-only, gitignored): secret keys are never printed.
 #
@@ -8,7 +9,7 @@
 #
 # ATTESTORS defaults to GET $POF_ATTEST_URL/v1/pubkey. The deployer is backend/solana/keys/admin.json:
 # it becomes the programs' upgrade authority, the only key that can initialize pof-gate, and needs
-# ~5 devnet SOL (two programs ≈ 3.2 SOL of rent, plus setup): https://faucet.solana.com
+# ~7 devnet SOL (three programs ≈ 5.1 SOL of rent, plus setup): https://faucet.solana.com
 # Safe to rerun: the programs are rebuilt and upgraded in place, and setup reuses the kept dUSDC mint
 # (keys/mint.json) and its pool.
 # Needs: solana CLI, anchor, node 22.6+ (runs .ts directly; the flag below covers 22.6–22.17), pnpm, curl.
@@ -27,18 +28,19 @@ if [ -z "${ATTESTORS:-}" ]; then
 fi
 
 [ -f "$ADMIN" ] || { echo "missing $ADMIN (the deployer and pof-gate admin)"; exit 1; }
-for p in pof_gate pof_credit; do
+for p in pof_gate pof_credit pof_reserve; do
   [ -f "$KEYS/program-$p.json" ] || { echo "missing $KEYS/program-$p.json (the program id keypair)"; exit 1; }
 done
 # Always rebuild, so a stale .so or IDL is never deployed; the site encodes from the IDLs.
 mkdir -p "$DEPLOY"
 cp "$KEYS/program-pof_gate.json" "$DEPLOY/pof_gate-keypair.json"
 cp "$KEYS/program-pof_credit.json" "$DEPLOY/pof_credit-keypair.json"
+cp "$KEYS/program-pof_reserve.json" "$DEPLOY/pof_reserve-keypair.json"
 (cd backend/solana && anchor build)
-cp backend/solana/target/idl/pof_gate.json backend/solana/target/idl/pof_credit.json frontend/src/data/idl/
+cp backend/solana/target/idl/pof_gate.json backend/solana/target/idl/pof_credit.json backend/solana/target/idl/pof_reserve.json frontend/src/data/idl/
 
 echo "deployer $(solana-keygen pubkey "$ADMIN") · $(solana balance "$(solana-keygen pubkey "$ADMIN")" --url "$URL")"
-for p in pof_gate pof_credit; do
+for p in pof_gate pof_credit pof_reserve; do
   echo "· deploying $p → $(solana-keygen pubkey "$KEYS/program-$p.json")"
   solana program deploy "$DEPLOY/$p.so" --program-id "$KEYS/program-$p.json" \
     --keypair "$ADMIN" --upgrade-authority "$ADMIN" --url "$URL" --with-compute-unit-price 10000
@@ -55,6 +57,9 @@ echo "· pof-gate allowlist, dUSDC mint and the credit pool"
 cd frontend
 [ -d node_modules ] || pnpm install --frozen-lockfile
 OUT=$(SOLANA_RPC_URL=$URL ADMIN_KEYPAIR=$ADMIN ATTESTORS=$ATTESTORS MINT_KEYPAIR=$KEYS/mint.json node --experimental-strip-types --no-warnings scripts/solana-setup.ts)
+echo "· pof-reserve allowlist and the demo reserves feed"
+OUT="$OUT
+$(SOLANA_RPC_URL=$URL ADMIN_KEYPAIR=$ADMIN ATTESTORS=$ATTESTORS ISSUER=$(solana-keygen pubkey "$KEYS/relayer.json") node --experimental-strip-types --no-warnings scripts/reserve-setup.ts)"
 
 # The public env goes to stdout. The three demo keypairs are secrets: they go only into a file under
 # the gitignored keys/, owner-only, and are never printed (terminal scrollback and CI logs are kept).
