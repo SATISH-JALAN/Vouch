@@ -77,7 +77,7 @@ export function GateDemo() {
   const reset = () => setS(INITIAL)
 
   async function loadProof(mode: Mode): Promise<string> {
-    if (mode === 'live' && svc?.demoProver && borrower) {
+    if (mode === 'live' && (svc?.demoProver || svc?.demoPool) && borrower) {
       const out = await demoProve(POOL_REQUEST, borrower)
       if (!out.ok) throw new Error(`The demo holder could not prove: ${out.message}`)
       return out.proof.proof

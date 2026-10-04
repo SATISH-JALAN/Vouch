@@ -48,7 +48,7 @@ async function verify(proof) {
 const request = { v: 1, claim: 'HoldsAtLeast', zatoshi: '50000000000', audience: AUDIENCE, expiryDays: 7, bind: 'solana' }
 
 const status = await get('/api/status')
-check('services are live', Boolean(status?.attestor?.ok && status.demoProver && status.solana), JSON.stringify(status?.solana ?? status?.attestor))
+check('services are live', Boolean(status?.attestor?.ok && (status.demoProver || status.demoPool) && status.solana), JSON.stringify(status?.solana ?? status?.attestor))
 const RPC = process.env.SOLANA_RPC_URL ?? (status?.solana?.cluster === 'localnet' ? 'http://127.0.0.1:8899' : 'https://api.devnet.solana.com')
 async function lamports(account) {
   try {

@@ -33,7 +33,7 @@ export function serviceStatus(): Promise<ServiceStatus> {
     })
     .catch(() => {
       statusCache = null
-      return { attestor: { ok: false, message: 'status route unreachable' }, demoProver: false, solana: null, durable: false }
+      return { attestor: { ok: false, message: 'status route unreachable' }, demoProver: false, demoPool: false, solana: null, durable: false }
     })
   return statusCache
 }

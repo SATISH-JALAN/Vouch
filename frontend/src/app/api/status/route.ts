@@ -3,6 +3,7 @@
 import type { ServiceStatus } from '@/lib/data/types'
 import { attestorUrl, upstreamFailure } from '@/lib/server/http'
 import { CREDIT_ID, GATE_ID } from '@/lib/server/solana'
+import { poolLeft } from '@/lib/server/demo-pool'
 import { durable } from '@/lib/server/store'
 
 export const dynamic = 'force-dynamic'
@@ -31,6 +32,7 @@ export async function GET() {
     SOLANA_RPC_URL && POF_POOL && RELAYER_SECRET_KEY && BORROWER_SECRET_KEY && (durable || !process.env.VERCEL)
       ? { cluster: process.env.SOLANA_CLUSTER ?? 'devnet', gate: GATE_ID.toBase58(), credit: CREDIT_ID.toBase58(), pool: POF_POOL }
       : null
-  const status: ServiceStatus = { attestor, demoProver, solana, durable }
+  const demoPool = !demoProver && attestor.ok && solana !== null && (await poolLeft().catch(() => 0)) > 0
+  const status: ServiceStatus = { attestor, demoProver, demoPool, solana, durable }
   return Response.json(status, { headers: { 'cache-control': 'no-store' } })
 }
