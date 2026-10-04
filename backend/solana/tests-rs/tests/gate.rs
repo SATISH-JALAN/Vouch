@@ -5,6 +5,8 @@
 //! point into another instruction, stale slot, expired proof, replay, unknown claim, below
 //! threshold, wrong audience, wrong signer, and double consumption, including by a second
 //! consumer program. Plus the admin surface: a front-run initialize, set_attestors, init_pool.
+//! And freshness: a line draws only while its latest proof is fresh, and a refresh must meet the
+//! pool's terms with an anchor no older than the line's last or the pool's floor.
 
 use anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas};
 use ed25519_dalek::{Signer as _, SigningKey};
@@ -267,6 +269,46 @@ fn draw_ix(w: &World, signer: &Pubkey, line: Pubkey, token: Pubkey, amount: u64)
         accounts: pof_credit::accounts::Draw { pool: p, line, borrower: *signer, vault: vault(&w.mint), borrower_token: token, token_program: litesvm_token::TOKEN_ID }.to_account_metas(None),
         data: pof_credit::instruction::Draw { amount }.data(),
     }
+}
+
+fn set_freshness_ix(mint: &Pubkey, authority: &Pubkey, fresh_secs: i64, min_anchor_height: u32) -> Instruction {
+    Instruction {
+        program_id: pof_credit::ID,
+        accounts: pof_credit::accounts::SetFreshness { pool: pool(mint), authority: *authority }.to_account_metas(None),
+        data: pof_credit::instruction::SetFreshness { fresh_secs, min_anchor_height }.data(),
+    }
+}
+
+/// refresh_line on the line opened against `opened`, with the receipt for `fresh`, signed by `who`.
+fn refresh(w: &mut World, who: &Keypair, opened: &[u8; 32], fresh: &[u8; 32]) -> Result<(), String> {
+    let ix = Instruction {
+        program_id: pof_credit::ID,
+        accounts: pof_credit::accounts::RefreshLine {
+            pool: pool(&w.mint),
+            line: line(opened, &who.pubkey()),
+            receipt: receipt(fresh),
+            borrower: who.pubkey(),
+            consumer: pda(&[b"consumer"], &pof_credit::ID),
+            consumer_program: pof_credit::ID,
+            gate_program: pof_gate::ID,
+        }
+        .to_account_metas(None),
+        data: pof_credit::instruction::RefreshLine {}.data(),
+    };
+    let r = w.relayer.insecure_clone();
+    send(&mut w.svm, &[ix], &r, &[who])
+}
+
+fn read_line(w: &World, subject: &[u8; 32], borrower: &Pubkey) -> pof_credit::CreditLine {
+    let acc = w.svm.get_account(&line(subject, borrower)).expect("line exists");
+    pof_credit::CreditLine::try_deserialize(&mut &acc.data[..]).unwrap()
+}
+
+/// Move the clock to `unix_timestamp`, leaving the slot (and so attestation freshness) alone.
+fn set_time(w: &mut World, unix_timestamp: i64) {
+    let mut clock: Clock = w.svm.get_sysvar();
+    clock.unix_timestamp = unix_timestamp;
+    w.svm.set_sysvar(&clock);
 }
 
 fn attest_raw(w: &mut World, subject: &[u8; 32], msg: Vec<u8>) -> Result<(), String> {
@@ -539,6 +581,104 @@ fn attestor_sets_are_admin_only_and_validated() {
         assert!(send(&mut w.svm, &[set_ix(&admin.pubkey(), set, threshold)], &admin, &[]).unwrap_err().contains("BadAttestorSet"));
     }
     send(&mut w.svm, &[set_ix(&admin.pubkey(), (1..=8).map(k).collect(), 8)], &admin, &[]).expect("eight distinct keys, 8 of 8");
+}
+
+#[test]
+fn a_line_draws_only_while_its_proof_is_fresh() {
+    let mut w = world(1, 1);
+    let (admin, b, relayer) = (w.admin.insecure_clone(), w.borrower.insecure_clone(), w.relayer.insecure_clone());
+    send(&mut w.svm, &[set_freshness_ix(&w.mint, &admin.pubkey(), 3_600, 0)], &admin, &[]).unwrap();
+    let first = Msg::valid(b.pubkey(), 30);
+    attest(&mut w, &first).unwrap();
+    open(&mut w, &b, &first.subject).unwrap();
+    let l = read_line(&w, &first.subject, &b.pubkey());
+    assert_eq!(l.fresh_until, NOW + 3_600);
+    assert_eq!((l.refreshed_against, l.refreshes), (first.subject, 0));
+
+    let ata = CreateAssociatedTokenAccount::new(&mut w.svm, &relayer, &w.mint).owner(&b.pubkey()).send().unwrap();
+    let draw = |w: &mut World, amount| {
+        let ix = draw_ix(w, &b.pubkey(), line(&first.subject, &b.pubkey()), ata, amount);
+        send(&mut w.svm, &[ix], &relayer, &[&b])
+    };
+    draw(&mut w, 1_000_000).expect("fresh");
+    set_time(&mut w, NOW + 3_600);
+    assert!(draw(&mut w, 1_000_000).unwrap_err().contains("NeedsFreshProof"), "the window has closed");
+
+    // A new proof (same notes, newer anchor) reopens the window; drawn is kept.
+    let mut second = Msg::valid(b.pubkey(), 31);
+    second.height += 1_000;
+    attest(&mut w, &second).unwrap();
+    refresh(&mut w, &b, &first.subject, &second.subject).expect("refresh with a fresh proof");
+    let l = read_line(&w, &first.subject, &b.pubkey());
+    assert_eq!((l.anchor_height, l.refreshed_against, l.refreshes), (second.height, second.subject, 1));
+    assert_eq!(l.fresh_until, NOW + 7_200);
+    assert_eq!(l.drawn, 1_000_000, "a refresh does not reset what was drawn");
+    assert!(read_receipt(&w, &second.subject).consumed, "the refresh spent its receipt");
+    draw(&mut w, 1_000_000).expect("fresh again");
+}
+
+#[test]
+fn freshness_never_outlasts_the_proof() {
+    let mut w = world(1, 1);
+    let b = w.borrower.insecure_clone();
+    let mut m = Msg::valid(b.pubkey(), 32);
+    m.expires = (NOW + 600) as u64; // shorter than the pool's default window
+    attest(&mut w, &m).unwrap();
+    open(&mut w, &b, &m.subject).unwrap();
+    assert_eq!(read_line(&w, &m.subject, &b.pubkey()).fresh_until, NOW + 600);
+}
+
+#[test]
+fn a_refresh_must_meet_the_terms_and_not_go_back_in_time() {
+    let mut w = world(1, 1);
+    let (b, s) = (w.borrower.insecure_clone(), w.stranger.insecure_clone());
+    let first = Msg::valid(b.pubkey(), 33);
+    attest(&mut w, &first).unwrap();
+    open(&mut w, &b, &first.subject).unwrap();
+
+    assert!(refresh(&mut w, &b, &first.subject, &first.subject).unwrap_err().contains("ReceiptConsumed"), "the opening proof again");
+
+    let mut older = Msg::valid(b.pubkey(), 34);
+    older.height -= 1;
+    attest(&mut w, &older).unwrap();
+    assert!(refresh(&mut w, &b, &first.subject, &older.subject).unwrap_err().contains("AnchorTooOld"), "an older snapshot");
+
+    let mut low = Msg::valid(b.pubkey(), 35);
+    low.value = REQUIRED - 12_500_000;
+    attest(&mut w, &low).unwrap();
+    assert!(refresh(&mut w, &b, &first.subject, &low.subject).unwrap_err().contains("BelowThreshold"), "the funds fell below the threshold");
+
+    let mut other = Msg::valid(b.pubkey(), 36);
+    other.audience = audience("otc-desk:someone-else");
+    attest(&mut w, &other).unwrap();
+    assert!(refresh(&mut w, &b, &first.subject, &other.subject).unwrap_err().contains("WrongAudience"));
+
+    // someone else's proof cannot refresh the borrower's line, signed by either of them
+    let theirs = Msg::valid(s.pubkey(), 37);
+    attest(&mut w, &theirs).unwrap();
+    assert!(refresh(&mut w, &s, &first.subject, &theirs.subject).unwrap_err().contains("AccountNotInitialized"), "the stranger has no such line");
+    assert!(refresh(&mut w, &b, &first.subject, &theirs.subject).unwrap_err().contains("NotBoundToSigner"));
+
+    let same_anchor = Msg::valid(b.pubkey(), 38);
+    attest(&mut w, &same_anchor).unwrap();
+    refresh(&mut w, &b, &first.subject, &same_anchor.subject).expect("the same anchor is allowed: the pool's floor decides staleness");
+}
+
+#[test]
+fn the_pool_floor_and_window_are_the_authoritys() {
+    let mut w = world(1, 1);
+    let (admin, b, s, r) = (w.admin.insecure_clone(), w.borrower.insecure_clone(), w.stranger.insecure_clone(), w.relayer.insecure_clone());
+    let m = Msg::valid(b.pubkey(), 39);
+    attest(&mut w, &m).unwrap();
+
+    assert!(send(&mut w.svm, &[set_freshness_ix(&w.mint, &s.pubkey(), 60, 0)], &r, &[&s]).unwrap_err().contains("ConstraintHasOne"));
+    assert!(send(&mut w.svm, &[set_freshness_ix(&w.mint, &admin.pubkey(), 0, 0)], &admin, &[]).unwrap_err().contains("BadTerms"));
+    send(&mut w.svm, &[set_freshness_ix(&w.mint, &admin.pubkey(), 60, m.height + 1)], &admin, &[]).unwrap();
+    assert!(open(&mut w, &b, &m.subject).unwrap_err().contains("AnchorTooOld"), "below the pool's floor");
+
+    send(&mut w.svm, &[set_freshness_ix(&w.mint, &admin.pubkey(), 60, m.height)], &admin, &[]).unwrap();
+    open(&mut w, &b, &m.subject).expect("at the floor");
+    assert_eq!(read_line(&w, &m.subject, &b.pubkey()).fresh_until, NOW + 60);
 }
 
 #[test]

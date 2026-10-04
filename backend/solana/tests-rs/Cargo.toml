@@ -12,6 +12,7 @@ litesvm-token = "0.16"
 anchor-lang = "1.2.0"
 pof-gate = { path = "../programs/pof-gate", features = ["no-entrypoint"] }
 pof-credit = { path = "../programs/pof-credit", features = ["no-entrypoint"] }
+pof-reserve = { path = "../programs/pof-reserve", features = ["no-entrypoint"] }
 ed25519-dalek = "2"
 blake2b_simd = "1"
 solana-keypair = "3"
