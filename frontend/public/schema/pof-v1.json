@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "/schema/pof-v1.json",
-  "title": "Vouch verification result, format v1",
+  "title": "Vouch verification result, formats 1 and 2",
   "description": "What pof-verify returns for one .pof file: the WASM verify() result, `pof-verify check --json`, and the attestor's /v1/verify response. `envelope` is the JSON projection of the proof itself; hex strings are lowercase, amounts are zatoshi, times are unix seconds.",
   "type": "object",
-  "required": ["verdict", "checks", "envelope", "sizeBytes", "checksum", "anchor", "now", "verifier"],
+  "required": ["verdict", "checks", "envelope", "sizeBytes", "checksum", "anchor", "scope", "tags", "revealed", "now", "verifier"],
   "additionalProperties": false,
   "properties": {
     "verdict": { "$ref": "#/$defs/verdict" },
@@ -27,6 +27,22 @@
     "anchor": {
       "description": "The published anchor record the proof matched, if any.",
       "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/anchorRecord" }]
+    },
+    "scope": {
+      "description": "The scope the proof's tags belong to: in format 2 blake2b of (circuit, audience, epoch), in format 1 the statement itself. Null when the file did not parse.",
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/hex32" }]
+    },
+    "tags": {
+      "description": "The proof's five per-note tags. The same note gives the same tag inside one scope, so a verifier records them for a Valid verdict and passes them back as its reuse registry.",
+      "type": "array",
+      "maxItems": 5,
+      "items": { "$ref": "#/$defs/hex32" }
+    },
+    "revealed": {
+      "description": "An exit certificate's revealed nullifiers (circuit 2, reveal = 1): a deposit it certifies may spend only these. Empty for any other proof.",
+      "type": "array",
+      "maxItems": 5,
+      "items": { "$ref": "#/$defs/hex32" }
     },
     "now": { "description": "The time the verdict was evaluated at.", "$ref": "#/$defs/time" },
     "verifier": { "description": "Name and version of the verifier, e.g. \"pof-verify 0.1.0\".", "type": "string", "pattern": "^pof-verify " }
@@ -73,7 +89,12 @@
           "type": "object",
           "required": ["kind", "claim", "anchorHeight"],
           "additionalProperties": false,
-          "properties": { "kind": { "const": "Valid" }, "claim": { "$ref": "#/$defs/claim" }, "anchorHeight": { "$ref": "#/$defs/height" } }
+          "properties": {
+            "kind": { "const": "Valid" },
+            "claim": { "$ref": "#/$defs/claim" },
+            "anchorHeight": { "$ref": "#/$defs/height" },
+            "dormantSince": { "description": "Present when the proof shows the notes unmoved since this earlier block.", "$ref": "#/$defs/height" }
+          }
         },
         {
           "type": "object",
@@ -84,6 +105,34 @@
         { "type": "object", "required": ["kind"], "additionalProperties": false, "properties": { "kind": { "const": "Revoked" } } },
         { "type": "object", "required": ["kind"], "additionalProperties": false, "properties": { "kind": { "const": "WrongAudience" } } },
         { "type": "object", "required": ["kind"], "additionalProperties": false, "properties": { "kind": { "const": "AnchorNotFound" } } },
+        {
+          "description": "The spent set the proof was made against is older than the verifier's policy allows.",
+          "type": "object",
+          "required": ["kind", "anchorHeight"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "AnchorTooOld" }, "anchorHeight": { "$ref": "#/$defs/height" } }
+        },
+        {
+          "description": "The notes are shown unmoved since a later block than the verifier's policy requires.",
+          "type": "object",
+          "required": ["kind", "dormantSince", "required"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "NotDormantLongEnough" }, "dormantSince": { "$ref": "#/$defs/height" }, "required": { "$ref": "#/$defs/height" } }
+        },
+        {
+          "description": "Made for this verifier, but in another period than the one it asked for (or a format 1 proof, which has no shared period).",
+          "type": "object",
+          "required": ["kind", "epoch", "required"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "WrongScope" }, "epoch": { "$ref": "#/$defs/time" }, "required": { "$ref": "#/$defs/time" } }
+        },
+        {
+          "description": "A valid proof whose notes the verifier already accepted in the same period.",
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "AlreadyUsed" } }
+        },
         {
           "type": "object",
           "required": ["kind", "detail"],
@@ -110,14 +159,15 @@
       }
     },
     "anchor": {
-      "description": "The block the proof is as of, and the two roots it was proved against.",
+      "description": "The two roots the proof was proved against and their blocks. height: the spent set (the block the proof is as of). ncHeight: the note-commitment tree; equal to height in format 1, earlier when the notes are shown unmoved since then.",
       "type": "object",
-      "required": ["height", "ncRoot", "nfRoot"],
+      "required": ["height", "ncRoot", "nfRoot", "ncHeight"],
       "additionalProperties": false,
       "properties": {
         "height": { "$ref": "#/$defs/height" },
-        "ncRoot": { "description": "Ironwood note-commitment tree root.", "$ref": "#/$defs/hex32" },
-        "nfRoot": { "description": "Spent-nullifier indexed Merkle tree root.", "$ref": "#/$defs/hex32" }
+        "ncRoot": { "description": "Ironwood note-commitment tree root at ncHeight.", "$ref": "#/$defs/hex32" },
+        "nfRoot": { "description": "Spent-nullifier indexed Merkle tree root at height.", "$ref": "#/$defs/hex32" },
+        "ncHeight": { "$ref": "#/$defs/height" }
       }
     },
     "anchorRecord": {
@@ -136,11 +186,13 @@
     "envelope": {
       "description": "The JSON projection of a .pof file. The version comes from the file header; everything else is the body.",
       "type": "object",
-      "required": ["version", "claim", "audience", "binding", "anchor", "issuedAt", "expiresAt", "revocation", "evidence"],
+      "required": ["version", "circuit", "claim", "audience", "epoch", "binding", "anchor", "issuedAt", "expiresAt", "revocation", "evidence"],
       "additionalProperties": false,
       "properties": {
-        "version": { "const": 1 },
+        "version": { "description": "1, or 2 with the circuit, the epoch and a second anchor height.", "enum": [1, 2] },
+        "circuit": { "description": "1: the threshold circuit. 2: threshold plus revealed nullifiers (exit certificates). Always 1 in format 1.", "enum": [1, 2] },
         "claim": { "$ref": "#/$defs/claim" },
+        "epoch": { "description": "The verifier's period. With the circuit and audience it fixes the scope: the same notes give the same tags inside one scope. Always 0 in format 1.", "$ref": "#/$defs/time" },
         "audience": { "description": "blake2b-256 of \"pof-audience:\" + the verifier's identifier, trimmed and lowercased. Never the name.", "$ref": "#/$defs/hex32" },
         "binding": { "description": "32 bytes the proof is bound to (a Solana pubkey for on-chain audiences), all zero when unbound.", "$ref": "#/$defs/hex32" },
         "anchor": { "$ref": "#/$defs/anchor" },
@@ -152,7 +204,7 @@
           "required": ["publicInputs", "proof", "signature"],
           "additionalProperties": false,
           "properties": {
-            "publicInputs": { "description": "Public inputs the verifier cannot derive (the rest it derives from the envelope).", "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/hex32" } },
+            "publicInputs": { "description": "Public inputs the verifier cannot derive (the rest it derives from the envelope).", "type": "array", "maxItems": 24, "items": { "$ref": "#/$defs/hex32" } },
             "proof": { "description": "Halo2 proof bytes, at most 16 KiB.", "type": "string", "pattern": "^([0-9a-f]{2}){0,16384}$" },
             "signature": { "description": "RedPallas spend-authorisation signature.", "$ref": "#/$defs/hex64" }
           }
