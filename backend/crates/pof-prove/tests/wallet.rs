@@ -65,7 +65,7 @@ fn seed_to_verified_proof() {
     // the 900 ZEC note is spent later: its nullifier appears in a later action
     actions.push(Action { nullifier: spent_nf, ..noise() });
 
-    let chain = ChainSnapshot { network: "testnet".into(), height: 1_234_000, block_hash: [9; 32], actions };
+    let chain = ChainSnapshot { network: "testnet".into(), height: 1_234_000, block_hash: [9; 32], actions, checkpoints: vec![] };
     let mut bytes = vec![];
     chain.write(&mut bytes).unwrap();
     let chain = ChainSnapshot::read(&mut &bytes[..]).unwrap();
@@ -75,7 +75,7 @@ fn seed_to_verified_proof() {
     let (_, _, record) = chain.anchor().unwrap();
     let snap = wallet::snapshot(&chain).unwrap();
 
-    let req = ProofRequest { v: 1, id: None, claim: "HoldsAtLeast".into(), zatoshi: 500 * ZEC, audience: "otc-desk:acme".into(), expiry_days: 7, respond_by: None, bind: None };
+    let req = ProofRequest { v: 1, id: None, claim: "HoldsAtLeast".into(), zatoshi: 500 * ZEC, audience: "otc-desk:acme".into(), expiry_days: 7, respond_by: None, bind: None, kind: None, epoch: None, dormant_since: None };
     let now = 1_790_000_000;
     let mut env: Envelope = envelope_for(&req, snap.anchor(), now, [0; 32], &[5; 32]);
     let used = prove(&sk, &notes, &snap, &mut env).expect("300 + 250 clears 500 without the spent note");
@@ -88,6 +88,6 @@ fn seed_to_verified_proof() {
     let file = pof_core::encode(&env);
     let anchors = vec![AnchorRecord { network: record.network, height: record.height, block_hash: record.block_hash, nc_root: record.nc_root, nf_root: record.nf_root }];
     let zk = ZkVerifier::new().unwrap();
-    let r = verify(&file, &Context { audience: "otc-desk:acme", anchors: &anchors, revoked_secrets: &[], now: now + 60, zk: &zk });
+    let r = verify(&file, &Context { audience: "otc-desk:acme", anchors: &anchors, revoked_secrets: &[], now: now + 60, zk: &zk, policy: Default::default(), seen: &[] });
     assert!(matches!(r.verdict, pof_verify::Verdict::Valid { claim: Claim::HoldsAtLeast { zatoshi }, .. } if zatoshi == 500 * ZEC), "{:?}", r.verdict);
 }

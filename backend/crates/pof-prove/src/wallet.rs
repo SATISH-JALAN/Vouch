@@ -72,5 +72,12 @@ pub fn unspent(snap: &ChainSnapshot, fvk: &FullViewingKey, notes: Vec<OwnedNote>
 
 /// The prover's view of a chain snapshot: both trees at its height.
 pub fn snapshot(snap: &ChainSnapshot) -> anyhow::Result<Snapshot> {
-    Ok(Snapshot { network: snap.network.clone(), height: snap.height, tree: snap.tree()?, imt: snap.imt()? })
+    Ok(Snapshot { network: snap.network.clone(), height: snap.height, tree: snap.tree()?, imt: snap.imt()?, nc_height: snap.height })
+}
+
+/// The note-commitment tree at an earlier checkpoint `since`, the spent set at the snapshot's
+/// last block: the view for "unmoved since `since`" proofs.
+pub fn snapshot_since(snap: &ChainSnapshot, since: u32) -> anyhow::Result<Snapshot> {
+    let old = snap.at(since)?.tree()?;
+    Ok(snapshot(snap)?.since(old, since))
 }
