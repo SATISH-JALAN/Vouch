@@ -6,7 +6,7 @@ export const BRAND = 'Vouch'
 export const TAGLINE = 'Prove what you hold. Reveal nothing else.'
 
 export const DESCRIPTION =
-  'Vouch replaces the Zcash viewing key with a proof: one claim, to one named party, with an expiry and a revocation, verifiable against the public chain by anyone.'
+  'The disclosure layer for shielded Zcash. Instead of a viewing key, prove one fact to one party: at least X ZEC, in notes unmoved since block H, and these are the notes in the deposit. Anyone can check it against the public chain.'
 
 export const SUBMISSION = {
   event: "CRYPTO WORLD'S FAIR 2026",

@@ -9,28 +9,28 @@ import { D, E, motionOK } from '@/lib/motion'
 
 const CELLS = [
   {
-    tag: 'Collateral',
-    title: ['Collateral', 'without custody'],
+    tag: 'Exits',
+    title: ['Exits', 'that clear'],
     img: '/visuals/unlock-collateral.webp',
     pos: '42% 50%',
     alt: 'Oil painting: at a bank counter a borrower hands over one sealed card; his own strongbox stays closed at his feet.',
-    lines: ['A lender learns the position clears their bar.', 'The ZEC never leaves Zcash and nobody else holds it.'],
+    lines: ['A swap rail learns the coins predate block H and have not moved since.', 'And that they are the exact notes in the deposit, not a wallet history.'],
   },
   {
-    tag: 'Receipts',
-    title: ['Payment receipts', 'without a wallet graph'],
+    tag: 'Collateral',
+    title: ['Collateral', 'without custody'],
     img: '/visuals/unlock-receipts.webp',
     pos: '50% 45%',
     alt: 'Oil painting: a shopkeeper and a customer shake hands over a sealed card; her purse stays closed.',
-    lines: ['Prove invoice 4471 was settled, on this date.', 'Neither side exposes a wallet to close the dispute.'],
+    lines: ['A lender learns the position clears their bar, and sees it if the same coins come back twice.', 'The ZEC never leaves Zcash and nobody else holds it.'],
   },
   {
-    tag: 'Counterparties',
-    title: ['Counterparty checks', 'that expire'],
+    tag: 'Reserves',
+    title: ['Reserves', 'that go stale on time'],
     img: '/visuals/unlock-expire.webp',
     pos: '62% 40%',
     alt: 'Oil painting: a trader studies a sealed card beside an hourglass that has nearly run out.',
-    lines: ['An OTC desk gets proof of funds for seven days.', 'Then it stops verifying. Nothing sits on file forever.'],
+    lines: ['A treasury proves its total across many proofs, no note counted twice.', 'A Solana token mints only within it, and only while the proof is fresh.'],
   },
 ]
 
@@ -68,7 +68,7 @@ export function Unlocks() {
           eyebrow="WHY IT MATTERS"
           title={
             <span id="unlocks-h">
-              One fact is enough to <Accent>lend against.</Accent>
+              One fact is enough to <Accent>act on.</Accent>
             </span>
           }
           titleRef={title}

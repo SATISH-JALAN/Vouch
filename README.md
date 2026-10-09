@@ -1,8 +1,16 @@
 # Vouch
 
-**Prove one fact about your shielded ZEC — "I hold at least 500 ZEC" — to one audience, for a limited time, without handing over a viewing key.**
+**The disclosure layer for shielded Zcash: prove one fact about your coins, to one party, and reveal nothing else.**
 
-A viewing key discloses every note, amount and memo, past and future, to whoever receives it, forever. Vouch replaces it with a single-purpose proof: a small `.pof` file (11.9 KB) that says one thing, to one named verifier, until one expiry, and that the holder can revoke. Anyone checks it in the browser in about 100 ms, against roots rebuilt from public Zcash data. For chains that cannot read Zcash, an attestor signs the verdict and a Solana program gates credit on it.
+Shielded ZEC is private until it has to leave. At a swap rail, an exchange or a desk, screeners can't score shielded coins, so large exits get held, and the only thing a holder can offer is a viewing key: every note, amount and memo, past and future, to whoever receives it, forever.
+
+Vouch replaces it with a single-purpose proof, a small `.pof` file that says exactly what the counterparty needs, from the chain alone:
+
+- **Exit certificates:** "at least X ZEC, in notes that already existed at block H and haven't moved since, and these are the notes I'm sending you". The rail picks H, checks it in about 100 ms and matches it to the deposit.
+- **Proof of funds:** "at least X ZEC", to one named verifier until one expiry, revocable, with reuse of the same coins visible to that verifier.
+- **Reserves:** several proofs summed with no note counted twice, published as a Solana feed that a token can only mint within.
+
+Anyone checks a proof in the browser against roots rebuilt from public Zcash data. For chains that cannot read Zcash, an attestor signs the verdict and Solana programs act on it. Nothing is bridged; only a proof moves.
 
 Built for the Colosseum Crypto World's Fair, Zcash track.
 
@@ -19,7 +27,8 @@ Built for the Colosseum Crypto World's Fair, Zcash track.
 | Prover | CLI: seed → trial-decrypt your Ironwood notes → proof. The key never leaves the process, and a test checks that the prover links no network client. |
 | On Solana | `pof-gate` (Ed25519 attestations, k-of-n, per-proof receipts bound to the holder's wallet), `pof-credit` (opens a credit line from a receipt and pays out draws up to its limit, only while the line's latest proof is fresh; `refresh_line` takes a new proof at an anchor no older than the last) and `pof-reserve` (an attested reserves batch becomes a feed; its demo token mints only within the proven total and only while the feed is fresh). 26 LiteSVM tests: replay, stranger wallet, forged signer, foreign offsets, k-of-n, stale proofs, refreshes that go back in time, minting past the reserves and more. |
 | Rail API | The attestor also serves rails: `/v1/certificates` (verify under the rail's period and policy against its reuse registry), `/v1/certificates/{id}/match` (read the deposit's nullifiers from lightwalletd), `/v1/batch`, HMAC-signed webhooks. The site's `/rail` console runs the same checks in the browser. |
-| Demo | The site's demo holder proves live against a **demo ledger**: a synthetic tree with real keys, real notes and real proofs, labelled `demo` wherever it appears. Beside it, `fixtures/proofs/testnet-valid.pof` is a real proof from a real **Zcash testnet** wallet (holds ≥ 1 TAZ, anchored at block 4,410,000), one click away on `/verify`. TAZ has no monetary value, and the verifier says so. |
+| Demo | The site's demo holder proves against a **demo ledger**: a synthetic tree with real keys, real notes and real proofs, labelled `demo` wherever it appears. Beside it, `fixtures/proofs/testnet-valid.pof` is a real proof from a real **Zcash testnet** wallet (holds ≥ 1 TAZ, anchored at block 4,410,000), one click away on `/verify`. TAZ has no monetary value, and the verifier says so. On the free-tier attestor (no CPU to prove live), `/demo` hands out real single-use proofs made ahead of time with `pof-prove demo pool`. |
+| Devnet | Deployed: `pof-gate` [`A6WmRTgE…Xn8C`](https://explorer.solana.com/address/A6WmRTgEAHC9GHstaj9oD8woVNRw9jgu31bpKVREXn8C?cluster=devnet), `pof-credit` [`J6ewFZAz…yra1`](https://explorer.solana.com/address/J6ewFZAzcTkbVsYNBrcZvzdBtTTUK5UrpqCg9jiNyra1?cluster=devnet), `pof-reserve` [`5Q26Tjcd…35h9`](https://explorer.solana.com/address/5Q26Tjcd4equ5te5hF15eG4xK6uvkbZtKkEeqdf535h9?cluster=devnet). The whole flow (proof → attestor → receipt → credit line → draw 1,000 dUSDC, plus replay, stranger wallet, tampering and revocation refused) passes `scripts/e2e.mjs` against them. |
 
 ## How it works
 

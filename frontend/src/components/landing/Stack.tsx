@@ -12,19 +12,20 @@ import { PLACES, StackMap } from './StackMap'
 const COMPONENTS: Record<string, { lang: string; job: string }> = {
   'pof-core': { lang: 'Rust', job: 'Claim types, the proof envelope, encoding. No I/O, no network.' },
   'pof-anchor': { lang: 'Rust CLI', job: 'Rebuilds both roots from public compact blocks; checks the note-commitment root against lightwalletd.' },
-  'pof-zk': { lang: 'Rust · Halo2', job: 'The delegation circuit with one added constraint: the threshold. No trusted setup.' },
-  'pof-prove': { lang: 'Rust CLI', job: 'Reads wallet state, pins an anchor, drives the circuit, writes proof.pof.' },
+  'pof-zk': { lang: 'Rust · Halo2', job: 'The delegation circuit, twice: with the threshold added, and with the notes revealed for exit certificates. No trusted setup.' },
+  'pof-prove': { lang: 'Rust CLI', job: 'Reads wallet state, pins the anchors, drives the circuit: a proof, an exit certificate or a reserves batch.' },
   'pof-verify': { lang: 'Rust → WASM', job: 'Six checks, cheapest first. One implementation, compiled twice.' },
-  'pof-attest': { lang: 'Rust service', job: 'Runs pof-verify and signs the verdict for chains that cannot read Zcash.' },
+  'pof-attest': { lang: 'Rust service', job: 'Runs pof-verify and signs the verdict for chains that cannot read Zcash. Serves rails: certificates, deposit match, webhooks.' },
   'pof-gate': { lang: 'Anchor', job: 'Turns a signed attestation into a replay-protected fact on Solana.' },
   'pof-credit': { lang: 'Anchor', job: 'Example consumer: opens a credit line against a threshold receipt.' },
+  'pof-reserve': { lang: 'Anchor', job: 'Turns an attested reserves batch into a feed; a token mints only within it, while it is fresh.' },
 }
 
 // The same river as the map: five pieces on the Zcash bank, two on the Solana bank, one hop between.
 const BANKS = [
   { label: 'Zcash side', note: 'On the holder’s machine, and in anyone’s browser.', rows: ['pof-core', 'pof-anchor', 'pof-zk', 'pof-prove', 'pof-verify'] },
   { label: 'The crossing', note: 'The one trusted hop.', rows: ['pof-attest'] },
-  { label: 'Solana side', note: 'Sees a signed verdict. Never a key, never a note.', rows: ['pof-gate', 'pof-credit'] },
+  { label: 'Solana side', note: 'Sees a signed verdict. Never a key, never a note.', rows: ['pof-gate', 'pof-credit', 'pof-reserve'] },
 ]
 
 const LINK_ROW: { label: string; href: string | null; external?: boolean }[] = [

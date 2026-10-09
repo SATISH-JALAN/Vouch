@@ -21,7 +21,7 @@ export const PLACES: Place[] = [
   { id: 'prover', label: 'The Prover’s Workshop', components: ['pof-prove', 'pof-zk', 'pof-core'], note: 'Runs on the holder’s own machine. Keys never leave this building.', x: 13, y: 55 },
   { id: 'verifier', label: 'The Verifier’s Hall', components: ['pof-verify'], note: 'Open to anyone. The same code runs in the CLI, the browser and the attestor.', x: 29, y: 51 },
   { id: 'attestor', label: 'Attestor’s Signal Tower', components: ['pof-attest'], note: 'Signs a verdict and wires it across the river. The one trusted hop.', x: 49, y: 48 },
-  { id: 'solana', label: 'Solana Pavilion', components: ['pof-gate', 'pof-credit'], note: 'Receives the signed verdict, records it once, and opens the credit line.', x: 86, y: 28 },
+  { id: 'solana', label: 'Solana Pavilion', components: ['pof-gate', 'pof-credit'], note: 'Receives the signed verdict, records it once, and acts on it: a credit line, a reserves feed.', x: 86, y: 28 },
 ]
 
 const RIVER = 'No bridge crosses the river. Only a signed message does.'

@@ -14,7 +14,7 @@ const STAGES = [
     title: 'Pin a moment',
     img: '/visuals/step-1-pin.webp',
     alt: 'Oil painting: a gloved hand stops a brass chronometer at one moment.',
-    body: 'The prover takes a snapshot of the chain at one finalised block. Every proof is “as of” that block, which is what makes it checkable and what makes it expire honestly.',
+    body: 'The prover takes a snapshot of the chain at one finalised block. Every proof is “as of” that block, which is what makes it checkable and what makes it expire honestly. For “unmoved since”, the notes must also be in the tree at an earlier block the verifier names.',
   },
   {
     title: 'Locate the notes',

@@ -106,7 +106,7 @@ export function Hero() {
           <div data-iris-lift="">
             <p data-enter="" className="t-prose mt-10 max-w-[54ch] text-on-dark/80">
               Zcash gives you one disclosure tool: a viewing key that reveals everything you have ever received, permanently. Vouch proves a
-              single fact instead.
+              single fact instead: enough to clear an exit, open a credit line or back a reserve.
             </p>
 
             <div className="mt-11 flex flex-wrap gap-3">
