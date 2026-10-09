@@ -78,11 +78,12 @@ jobs:
           sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
           sh -c "$(curl -sSfL https://release.anza.xyz/v4.1.2/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-      - name: Build pof-gate and pof-credit (SBF)
+      - name: Build pof-gate, pof-credit and pof-reserve (SBF)
         working-directory: backend/solana
         run: |
           cargo build-sbf --manifest-path programs/pof-gate/Cargo.toml --sbf-out-dir target/deploy -- --locked
           cargo build-sbf --manifest-path programs/pof-credit/Cargo.toml --sbf-out-dir target/deploy -- --locked
+          cargo build-sbf --manifest-path programs/pof-reserve/Cargo.toml --sbf-out-dir target/deploy -- --locked
       - name: Attack tests
         working-directory: backend/solana
         run: cargo test --locked -p pof-solana-tests
