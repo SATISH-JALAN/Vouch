@@ -50,7 +50,14 @@ async function verify(proof) {
 }
 const request = { v: 1, claim: 'HoldsAtLeast', zatoshi: '50000000000', audience: AUDIENCE, expiryDays: 7, bind: 'solana' }
 
-const status = await get('/api/status')
+// A free-tier attestor sleeps when idle and takes up to a minute to wake; /api/status reports it as
+// waking. Wait for it, as /demo does, so a cold start is not reported as a dead service.
+let status = await get('/api/status')
+for (let t = Date.now(); status?.attestor?.waking && Date.now() - t < 90_000; ) {
+  console.log('     attestor is waking; asking again in 5 s')
+  await new Promise((r) => setTimeout(r, 5_000))
+  status = await get('/api/status')
+}
 check('services are live', Boolean(status?.attestor?.ok && (status.demoProver || status.demoPool) && status.solana), JSON.stringify(status?.solana ?? status?.attestor))
 const RPC = process.env.SOLANA_RPC_URL ?? (status?.solana?.cluster === 'localnet' ? 'http://127.0.0.1:8899' : 'https://api.devnet.solana.com')
 async function lamports(account) {
@@ -134,7 +141,7 @@ check('attestor refuses a revoked proof', a3.status === 422 && a3.body?.verdict?
 const batch = (name) => readFileSync(new URL(`../fixtures/proofs/${name}`, import.meta.url)).toString('base64url')
 const RESERVES_TOTAL = 401_812_500_000n // 4,018.125 ZEC across the demo batch's three proofs
 const feed0 = await get('/api/reserve')
-check('the reserves feed is deployed', Boolean(feed0?.configured && feed0.relayer), feed0?.error ?? (feed0?.configured ? 'relayer off' : 'not configured'))
+check('the reserves feed is deployed', Boolean(feed0?.configured && feed0.relayer), feed0?.error ?? (!feed0?.configured ? 'not configured' : feed0.relayer ? `${feed0.feed?.publishes ?? 0} publishes so far` : 'relayer off'))
 const pub = await post('/api/reserve', { action: 'publish', batch: batch('reserves.pofb') })
 check('a reserves batch is published to the feed', pub.status === 200 && Boolean(pub.body?.signature), pub.body?.explorer ?? pub.body?.error)
 const feed1 = await get('/api/reserve')
