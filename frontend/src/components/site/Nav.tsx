@@ -172,16 +172,21 @@ export function Nav() {
         {/* five links and the mark must fit 320px: tighter below 400px */}
         <ul ref={list} className="flex items-center gap-2.5 text-[13px] min-[400px]:gap-4 min-[400px]:text-[14px] sm:gap-7">
           {NAV.map((n) => {
-            const current = pathname === n.href || (n.href.startsWith('/docs') && pathname.startsWith('/docs'))
+            const current = pathname === n.href
+            const tone = cx('link-draw pb-0.5', dark ? 'text-on-dark-2 hover:text-on-dark' : 'text-ink-2 hover:text-ink', current && (dark ? 'text-on-dark' : 'text-ink'))
             return (
               <li key={n.href} className={cx('relative', 'wide' in n && n.wide && 'hidden md:list-item')}>
-                <Link
-                  href={n.href}
-                  aria-current={current ? 'page' : undefined}
-                  className={cx('link-draw pb-0.5', dark ? 'text-on-dark-2 hover:text-on-dark' : 'text-ink-2 hover:text-ink', current && (dark ? 'text-on-dark' : 'text-ink'))}
-                >
-                  {n.label}
-                </Link>
+                {'external' in n && n.external ? (
+                  <a href={n.href} target="_blank" rel="noopener" className={tone}>
+                    {n.label}
+                    <span aria-hidden className="ml-0.5 text-[0.85em]">↗</span>
+                    <span className="sr-only"> (opens in a new tab)</span>
+                  </a>
+                ) : (
+                  <Link href={n.href} aria-current={current ? 'page' : undefined} className={tone}>
+                    {n.label}
+                  </Link>
+                )}
                 {current && <span data-nav-dot="" aria-hidden className="absolute -bottom-2 left-1/2 -ml-0.5 h-1 w-1 rounded-full bg-current" />}
               </li>
             )

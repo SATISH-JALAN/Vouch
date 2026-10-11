@@ -35,5 +35,6 @@ export const NAV = [
   { href: '/rail', label: 'Rail', wide: true },
   { href: '/reserves', label: 'Reserves', wide: true },
   { href: '/demo', label: 'Demo' },
-  { href: '/docs/format', label: 'Docs' },
+  // the docs are their own site: a new tab, so the page you were on stays open
+  { href: '/docs', label: 'Docs', external: true },
 ] as const

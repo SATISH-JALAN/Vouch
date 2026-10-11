@@ -2,12 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Fraunces, Geist_Mono, Instrument_Serif } from 'next/font/google'
 import localFont from 'next/font/local'
 import { GeistPixelSquare } from 'geist/font/pixel'
-import { HEAD_SCRIPT, MotionProvider } from '@/components/motion/MotionProvider'
-import { Preloader } from '@/components/motion/Preloader'
-import { Cursor } from '@/components/motion/Cursor'
-import { RouteTransition } from '@/components/motion/RouteTransition'
-import { Nav } from '@/components/site/Nav'
-import { Footer } from '@/components/site/Footer'
+import { HEAD_SCRIPT } from '@/components/motion/MotionProvider'
 import { BRAND, DESCRIPTION, TAGLINE } from '@/lib/site'
 import './globals.css'
 
@@ -47,14 +42,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <a href="#main" className="t-data-sm sr-only z-[200] bg-ink px-4 py-3 text-bone focus:not-sr-only focus:fixed focus:left-4 focus:top-4">
           Skip to content
         </a>
-        <MotionProvider>
-          <Preloader />
-          <RouteTransition />
-          <Nav />
-          <main id="main" tabIndex={-1} className="outline-none">{children}</main>
-          <Footer />
-          <Cursor />
-        </MotionProvider>
+        {/* the site's chrome is in (site)/layout.tsx; /docs has its own */}
+        {children}
       </body>
     </html>
   )
