@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
-import { notFound } from 'next/navigation'
+import { notFound, permanentRedirect } from 'next/navigation'
 import { DOCS, getDoc } from '@/lib/docs'
-import { DocView } from '@/components/docs/DocView'
+import { DocArticle } from '@/components/docs/DocArticle'
 
 export const dynamicParams = false
 
@@ -17,7 +17,9 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
 export default async function DocPage({ params }: { params: Promise<{ slug: string[] }> }) {
   const { slug } = await params
-  const doc = getDoc(slug.join('/'))
+  const key = slug.join('/')
+  if (key === 'introduction') permanentRedirect('/docs')
+  const doc = getDoc(key)
   if (!doc) notFound()
-  return <DocView doc={doc} docs={DOCS.map(({ slug, title }) => ({ slug, title }))} />
+  return <DocArticle doc={doc} />
 }
