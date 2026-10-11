@@ -1,7 +1,10 @@
 // End to end through the site's own API, the way /demo and /prove drive it:
 // demo holder proves (bound to the borrower) → WASM verifies → attestor signs → pof-gate
 // records a receipt → pof-credit opens a line. Then every breaker: replay, another wallet,
-// a tampered attestation, a tampered proof, and a revoked proof.
+// a tampered attestation, a tampered proof, and a revoked proof. Then reserves: a batch published
+// to the pof-reserve feed, a double-counted batch refused, Secure Mint within the reserves, and a
+// mint past them refused. (The stale-feed breaker needs the heartbeat, about an hour, to pass; the
+// LiteSVM tests cover it.)
 //
 //   SITE=http://localhost:3000 node scripts/e2e.mjs
 //
@@ -126,6 +129,29 @@ check('revoked proof verifies as Revoked', v3.verdict.kind === 'Revoked', v3.ver
 await new Promise((r) => setTimeout(r, 10_500)) // the attestor caches the list for 10 s
 const a3 = await post('/api/attest', { proof: p3.proof })
 check('attestor refuses a revoked proof', a3.status === 422 && a3.body?.verdict?.kind === 'Revoked', a3.body?.verdict?.kind ?? a3.body?.error)
+
+// reserves · the batch the attestor signs, the feed pof-reserve keeps, the mint it guards
+const batch = (name) => readFileSync(new URL(`../fixtures/proofs/${name}`, import.meta.url)).toString('base64url')
+const RESERVES_TOTAL = 401_812_500_000n // 4,018.125 ZEC across the demo batch's three proofs
+const feed0 = await get('/api/reserve')
+check('the reserves feed is deployed', Boolean(feed0?.configured && feed0.relayer), feed0?.error ?? (feed0?.configured ? 'relayer off' : 'not configured'))
+const pub = await post('/api/reserve', { action: 'publish', batch: batch('reserves.pofb') })
+check('a reserves batch is published to the feed', pub.status === 200 && Boolean(pub.body?.signature), pub.body?.explorer ?? pub.body?.error)
+const feed1 = await get('/api/reserve')
+check(
+  'the feed holds the proven total and is fresh',
+  feed1?.feed?.totalZatoshi === String(RESERVES_TOTAL) && feed1.feed.publishes > (feed0?.feed?.publishes ?? 0) && feed1.stale === false,
+  feed1?.feed ? `${feed1.feed.totalZatoshi} zat, ${feed1.feed.members} members, ${feed1.feed.publishes} publishes, stale ${feed1.stale}` : 'no feed',
+)
+const dbl = await post('/api/reserve', { action: 'publish', batch: batch('reserves-double.pofb') })
+check('a double-counted batch is refused', dbl.status === 422 && !dbl.body?.signature, dbl.body?.verdict?.kind ?? dbl.body?.error)
+const supply0 = BigInt(feed1?.supply ?? 0)
+const m1 = await post('/api/reserve', { action: 'mint', amount: '100000000' })
+const supply1 = BigInt((await get('/api/reserve'))?.supply ?? 0)
+check('Secure Mint mints 1 wZEC within the reserves', m1.status === 200 && supply1 === supply0 + 100_000_000n, m1.status === 200 ? `supply ${supply0} → ${supply1}` : m1.body?.error)
+const over = RESERVES_TOTAL - supply1 + 1n
+const m2 = over > 0n ? await post('/api/reserve', { action: 'mint', amount: String(over) }) : { status: 0, body: { error: 'supply already at the reserves' } }
+check('a mint past the proven reserves is refused', m2.status === 422 && /exceed the proven reserves/.test(m2.body?.error ?? ''), m2.body?.error)
 
 console.log(fail ? `${fail} FAILED` : 'end to end: all passed')
 process.exit(fail ? 1 : 0)

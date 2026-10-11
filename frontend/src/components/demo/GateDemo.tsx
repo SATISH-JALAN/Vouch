@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import type { Attestation, CreditLine, GateTransaction, ProofRequest, ServiceStatus, VerificationResult } from '@/lib/data/types'
 import { DEMO_AUDIENCE, DEMO_THRESHOLD_ZAT, INSTRUCTIONS_SYSVAR } from '@/lib/data/chain'
 import { fetchPreset, verify } from '@/lib/data/verifier'
-import { attest as liveAttest, demoProve, relayBorrower, relayDraw, relayOpenLine, relaySubmit, serviceStatus } from '@/lib/data/services'
+import { attest as liveAttest, demoProve, relayBorrower, relayDraw, relayOpenLine, relaySubmit, serviceStatusAwake } from '@/lib/data/services'
 import * as sim from '@/lib/data/simulated'
 import { formatDate, formatInt, formatZecExact } from '@/lib/format'
 import { fromBase64Url, fromHex, toBase58, toBase64Url } from '@/lib/pof/bytes'
@@ -54,20 +54,20 @@ export function GateDemo() {
   const [tamperAtt, setTamperAtt] = useState(false)
   const [attestorDown, setAttestorDown] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [waking, setWaking] = useState(false)
 
   // Nothing can run until svc is set, and svc is set together with the borrower, so a run never
-  // starts SIM and then finds itself LIVE.
+  // starts SIM and then finds itself LIVE. A sleeping attestor is waited for, not reported as absent.
   useEffect(() => {
-    let dead = false
-    void serviceStatus().then(async (st) => {
+    const stop = new AbortController()
+    void serviceStatusAwake(() => setWaking(true), stop.signal).then(async (st) => {
       const b = st.solana && st.attestor.ok ? await relayBorrower() : null
-      if (dead) return
+      if (stop.signal.aborted) return
+      setWaking(false)
       setBorrower(b)
       setSvc(st)
     })
-    return () => {
-      dead = true
-    }
+    return () => stop.abort()
   }, [])
 
   const deployed: Mode = svc?.solana && svc.attestor.ok && borrower ? 'live' : 'sim'
@@ -216,8 +216,13 @@ export function GateDemo() {
       {/* controls */}
       <aside className="space-y-8 lg:sticky lg:top-24 lg:self-start">
         <div className="flex items-center gap-3">
-          <Chip status={mode === 'live' ? 'valid' : 'neutral'}>{svc ? (mode === 'live' ? `LIVE · ${svc.solana?.cluster}` : 'SIMULATED CHAIN') : 'CHECKING'}</Chip>
+          <Chip status={mode === 'live' ? 'valid' : 'neutral'}>{svc ? (mode === 'live' ? `LIVE · ${svc.solana?.cluster}` : 'SIMULATED CHAIN') : waking ? 'WAKING THE ATTESTOR' : 'CHECKING'}</Chip>
         </div>
+        {waking && !svc && (
+          <p className="t-data-sm text-ink-3" role="status">
+            The attestor runs on a free host that sleeps when idle. Waking it takes up to a minute; the demo starts LIVE once it answers.
+          </p>
+        )}
         <div className="space-y-2">
           <button type="button" className="btn btn-primary w-full" aria-busy={busy} onClick={() => void runNext()} disabled={!svc || !next || halted || busy}>
             <BtnLabel>{busy ? 'Running…' : halted ? 'Halted · reset to retry' : next ? `Run step ${ORDER.indexOf(next) + 1}` : 'Complete'}</BtnLabel>

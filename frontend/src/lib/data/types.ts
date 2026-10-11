@@ -219,7 +219,8 @@ export type SubmitOutcome =
 
 /** What the deployment has configured: drives LIVE vs SIMULATED on /demo and /prove. */
 export interface ServiceStatus {
-  attestor: { ok: boolean; pubkey?: string; message?: string }
+  /** waking: configured but asleep or starting (a free host spins down when idle); ask again. */
+  attestor: { ok: boolean; pubkey?: string; message?: string; waking?: boolean }
   demoProver: boolean
   /** No prover, but /demo's one request is answered from pre-made single-use proofs. */
   demoPool: boolean

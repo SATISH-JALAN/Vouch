@@ -38,6 +38,26 @@ export function serviceStatus(): Promise<ServiceStatus> {
   return statusCache
 }
 
+const WAKE_MS = 90_000
+const WAKE_POLL_MS = 5_000
+
+/**
+ * Like serviceStatus, but waits out an attestor that is waking (the hosted one sleeps when idle and
+ * takes up to a minute to boot). Every ask is a request to it, which is what wakes it. onWaking hears
+ * each waking answer; after WAKE_MS the last answer is returned as it is, and the page labels itself
+ * from that.
+ */
+export async function serviceStatusAwake(onWaking?: (st: ServiceStatus) => void, signal?: AbortSignal): Promise<ServiceStatus> {
+  const start = Date.now()
+  for (;;) {
+    const st = await serviceStatus()
+    if (st.attestor.ok || !st.attestor.waking || signal?.aborted || Date.now() - start > WAKE_MS) return st
+    onWaking?.(st)
+    statusCache = null
+    await new Promise((r) => setTimeout(r, WAKE_POLL_MS))
+  }
+}
+
 export async function attest(proofB64: string): Promise<AttestOutcome> {
   const r = await post<{ attestation?: AttestOutcome extends { ok: true; attestation: infer A } ? A : never; verdict?: Verdict; error?: string }>('/api/attest', { proof: proofB64 })
   if (r.status === 422 && r.body?.verdict) {

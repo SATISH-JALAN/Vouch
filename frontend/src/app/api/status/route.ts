@@ -20,10 +20,12 @@ export async function GET() {
         attestor = { ok: true, pubkey: body.pubkey }
         demoProver = Boolean(body.demoProver)
       } else {
-        attestor = { ok: false, message: `attestor answered HTTP ${res.status}` }
+        // a host that is starting up answers 502–504 before the attestor is listening
+        attestor = { ok: false, message: `attestor answered HTTP ${res.status}`, waking: res.status >= 502 && res.status <= 504 }
       }
     } catch (err) {
-      attestor = { ok: false, message: `attestor unreachable: ${upstreamFailure(err)}` }
+      // a sleeping free instance holds the request while it boots; this request is what wakes it
+      attestor = { ok: false, message: `attestor unreachable: ${upstreamFailure(err)}`, waking: true }
     }
   }
   const { SOLANA_RPC_URL, POF_POOL, RELAYER_SECRET_KEY, BORROWER_SECRET_KEY } = process.env

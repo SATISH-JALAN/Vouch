@@ -14,6 +14,8 @@ Anyone checks a proof in the browser against roots rebuilt from public Zcash dat
 
 Built for the Colosseum Crypto World's Fair, Zcash track.
 
+**Live:** [vouch-zcash.vercel.app](https://vouch-zcash.vercel.app). Check the real testnet proofs on [`/verify`](https://vouch-zcash.vercel.app/verify), match an exit certificate on [`/rail`](https://vouch-zcash.vercel.app/rail), sum reserves on [`/reserves`](https://vouch-zcash.vercel.app/reserves), and run the devnet credit flow on [`/demo`](https://vouch-zcash.vercel.app/demo). The attestor is on a free host that sleeps when idle, so the first visit can take a minute to wake it. CLIs: [latest release](https://github.com/SATISH-JALAN/Vouch/releases/latest).
+
 ## What is real
 
 | Piece | Status |
